@@ -27,9 +27,7 @@
         <label>Verlies per reflectie <output id="attenOut"></output>
           <input type="range" id="atten" min="0" max="60" step="1" value="20">
         </label>
-        <table class="levels" id="levels"></table>
-        <label class="check"><input type="checkbox" id="debug"> Kleur per reflectieniveau</label>
-      </details>
+        <table class="levels" id="levels"></table>      </details>
 
       <details open>
         <summary>Lampjes (midden van elke ribbe)</summary>
@@ -52,10 +50,23 @@
         <label>LED-diameter <output id="ledOut"></output>
           <input type="range" id="led" min="0.2" max="1.5" step="0.05" value="0.5">
         </label>
-        <label>Afstand LED tot hoek <output id="insetOut"></output>
+        <label>Afstand LED tot spiegel <output id="insetOut"></output>
           <input type="range" id="inset" min="0.3" max="3" step="0.1" value="0.8">
         </label>
+        <label>LEDs per ribbe <output id="perEdgeOut"></output>
+          <input type="range" id="perEdge" min="1" max="10" step="1" value="1">
+        </label>
+        <label>Verdeling langs de ribbe
+          <select id="spacing">
+            <option value="around" selected>space-around (halve ruimte aan de uiteinden)</option>
+            <option value="between">space-between (eerste en laatste in de hoek)</option>
+            <option value="evenly">space-evenly (overal gelijke ruimte)</option>
+          </select>
+        </label>
+        <canvas id="spacingPreview" width="280" height="34" aria-label="Voorbeeld van de verdeling op één ribbe"></canvas>
         <div class="edges" id="edges"></div>
+        <label class="check"><input type="checkbox" id="faces"> LED in het midden van elk vlak</label>
+        <div class="edges" id="faceList" hidden></div>
       </details>
 
       <details open>

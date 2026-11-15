@@ -36,9 +36,61 @@
     }
   })();
 
-  function edgePos(e, inset) {
-    const d = H - inset;
-    return [e.dir.x * d, e.dir.y * d, e.dir.z * d];
+  // Face centres: normal axis + sign
+  const FACES = [
+    // off by default: with a centred peephole this LED sits right in front of your eye
+    { axis: 2, sign: 1, name: 'voor (kijkgat)', on: false },
+    { axis: 2, sign: -1, name: 'achter', on: true },
+    { axis: 0, sign: -1, name: 'links', on: true },
+    { axis: 0, sign: 1, name: 'rechts', on: true },
+    { axis: 1, sign: 1, name: 'boven (deksel)', on: true },
+    { axis: 1, sign: -1, name: 'onder', on: true },
+  ];
+
+  const MAX_PER_EDGE = 10;
+  const MAX_LIGHTS = 128;     // >= 12 * MAX_PER_EDGE + 6
+
+  // Positions (cm, along the edge from -H to +H) like CSS flex justify-content.
+  function spacingPositions(n, mode, inset) {
+    const L = 2 * H;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      let t;
+      if (mode === 'between') {
+        const s = H - inset;                       // first/last LED tucked into the corner
+        t = n === 1 ? 0 : -s + (2 * s * i) / (n - 1);
+      } else if (mode === 'evenly') {
+        t = -H + (L * (i + 1)) / (n + 1);
+      } else {                                     // around
+        t = -H + (L * (i + 0.5)) / n;
+      }
+      out.push(Math.max(-(H - inset), Math.min(H - inset, t)));
+    }
+    return out;
+  }
+
+  // All LEDs (also switched-off ones, for the overview) with stable colour indices.
+  function buildLights(s) {
+    const lights = [];
+    const ts = spacingPositions(s.perEdge, s.spacing, s.inset);
+    const d = H - s.inset;
+    EDGES.forEach((e) => {
+      const along = ['x', 'y', 'z'].findIndex((k) => e.dir[k] === 0);
+      ts.forEach((t) => {
+        const p = [e.dir.x * d, e.dir.y * d, e.dir.z * d];
+        p[along] = t;
+        lights.push({ p, on: e.on });
+      });
+    });
+    if (s.faces) {
+      FACES.forEach((f) => {
+        const p = [0, 0, 0];
+        p[f.axis] = f.sign * d;
+        lights.push({ p, on: f.on });
+      });
+    }
+    lights.forEach((l, i) => { l.c = lightColor(i, lights.length); });
+    return lights;
   }
 
   // ---------- DOM ----------
@@ -48,7 +100,7 @@
   const octx = overview.getContext('2d');
 
   const ui = {};
-  ['bounces', 'atten', 'bright', 'glow', 'led', 'inset', 'holeX', 'holeY', 'holeD',
+  ['bounces', 'atten', 'bright', 'glow', 'led', 'inset', 'perEdge', 'holeX', 'holeY', 'holeD',
     'eye', 'fov', 'seam', 'amb'].forEach((id) => { ui[id] = $(id); });
 
   const fmt = {
@@ -58,6 +110,7 @@
     glow: (v) => (+v).toFixed(2),
     led: (v) => `${(v * 10).toFixed(1)} mm`,
     inset: (v) => `${(+v).toFixed(1)} cm`,
+    perEdge: (v) => `${v} (${v * 12} totaal)`,
     holeX: (v) => `${(+v).toFixed(1)} cm`,
     holeY: (v) => `${(+v).toFixed(1)} cm`,
     holeD: (v) => `${(v * 10).toFixed(0)} mm`,
@@ -94,11 +147,11 @@
     const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
     return [f(0), f(8), f(4)];
   }
-  function lightColor(i) {
+  function lightColor(i, total) {
     switch ($('colorMode').value) {
       case 'warm': return hexToRgb('#ffb066');
       case 'cool': return hexToRgb('#d6e6ff');
-      case 'rainbow': return hslToRgb(i * 30, 1, 0.55);
+      case 'rainbow': return hslToRgb((i * 360) / total, 1, 0.55);
       case 'custom': return hexToRgb($('customColor').value);
       case 'sint':
       default: return i % 2 ? hexToRgb('#ffc23a') : hexToRgb('#ff2424');
@@ -110,6 +163,11 @@
   if (!gl) {
     document.querySelector('.stage').innerHTML =
       '<p style="padding:24px">WebGL is niet beschikbaar in deze browser.</p>';
+    return;
+  }
+  if (!gl.getExtension('OES_texture_float')) {
+    document.querySelector('.stage').innerHTML =
+      '<p style="padding:24px">Deze browser ondersteunt geen float-textures (OES_texture_float).</p>';
     return;
   }
 
@@ -131,26 +189,14 @@
     uniform float uGlow;
     uniform float uAtten;
     uniform int   uBounces;
-    uniform vec3  uLP[12];
-    uniform vec3  uLC[12];
+    uniform sampler2D uLights;   // row 0: positions, row 1: colours
+    uniform int   uCount;
+    uniform int   uAA;
     uniform float uLid;
     uniform float uSeam;
     uniform float uAmb;
-    uniform float uDebug;
 
     const float H = ${H.toFixed(1)};
-
-    vec3 levelTint(int b) {
-      if (b == 0) return vec3(1.0, 1.0, 1.0);
-      if (b == 1) return vec3(0.2, 0.85, 1.0);
-      if (b == 2) return vec3(0.3, 1.0, 0.35);
-      if (b == 3) return vec3(1.0, 0.8, 0.15);
-      if (b == 4) return vec3(1.0, 0.3, 0.9);
-      if (b == 5) return vec3(1.0, 0.45, 0.2);
-      if (b == 6) return vec3(0.35, 0.45, 1.0);
-      if (b == 7) return vec3(0.65, 1.0, 0.75);
-      return vec3(1.0, 0.25, 0.3);
-    }
 
     vec3 trace(vec3 ro, vec3 rd, float pixAng) {
       // 1. Pass through the peephole in the front face (z = +H).
@@ -177,13 +223,12 @@
         else if (tt.y < tt.z)           { tw = tt.y; ax = 1; }
         else                            { tw = tt.z; ax = 2; }
 
-        vec3 tint = uDebug > 0.5 ? levelTint(b) : vec3(1.0);
-
         // 2. LEDs along this straight segment
-        for (int i = 0; i < 12; i++) {
-          vec3 c = uLC[i];
-          if (c.r + c.g + c.b <= 0.0) continue;
-          vec3 L = uLP[i];
+        for (int i = 0; i < ${MAX_LIGHTS}; i++) {
+          if (i >= uCount) break;
+          float u = (float(i) + 0.5) / ${MAX_LIGHTS}.0;
+          vec3 L = texture2D(uLights, vec2(u, 0.25)).xyz;
+          vec3 c = texture2D(uLights, vec2(u, 0.75)).xyz;
           float tc = clamp(dot(L - ro, rd), 0.0, tw);
           float h = length(ro + rd * tc - L);
           float d = max(path + tc, 0.05);
@@ -194,8 +239,7 @@
           float x = ang / (w * 2.5);
           float halo = uGlow * (0.45 * exp(-x * x) + 0.02 / (1.0 + x * x * x * x));
           float energy = sqrt(angR / w);      // sub-pixel LEDs get a bit dimmer
-          vec3 lc = uDebug > 0.5 ? tint : c;
-          col += thr * lc * uBright * energy * (core + halo);
+          col += thr * c * uBright * energy * (core + halo);
         }
 
         vec3 p = ro + rd * tw;
@@ -214,7 +258,7 @@
           col += thr * vec3(0.015);                      // seam between mirrors
           break;
         }
-        col += thr * uAmb * tint * vec3(0.75, 0.8, 0.9); // dust / stray light on the glass
+        col += thr * uAmb * vec3(0.75, 0.8, 0.9); // dust / stray light on the glass
 
         if (b >= uBounces) break;                        // no more reflections allowed
 
@@ -231,15 +275,18 @@
     void main() {
       float pixAng = 2.0 * uTanHalf / uRes.y;
       vec3 sum = vec3(0.0);
+      float n = float(uAA);
       for (int sy = 0; sy < 2; sy++) {
+        if (sy >= uAA) break;
         for (int sx = 0; sx < 2; sx++) {
-          vec2 off = (vec2(float(sx), float(sy)) + 0.5) / 2.0;
+          if (sx >= uAA) break;
+          vec2 off = (vec2(float(sx), float(sy)) + 0.5) / n;
           vec2 uv = (gl_FragCoord.xy - 0.5 + off - 0.5 * uRes) / uRes.y;
           vec3 rd = normalize(uRight * uv.x * 2.0 * uTanHalf + uUp * uv.y * 2.0 * uTanHalf + uFwd);
           sum += trace(uEye, rd, pixAng);
         }
       }
-      vec3 c = sum * 0.25;
+      vec3 c = sum / (n * n);
       c = 1.0 - exp(-c);                 // tone map (bright LEDs saturate to white)
       c = pow(c, vec3(1.0 / 2.2));
       gl_FragColor = vec4(c, 1.0);
@@ -271,8 +318,18 @@
 
   const U = {};
   ['uRes', 'uEye', 'uRight', 'uUp', 'uFwd', 'uTanHalf', 'uHole', 'uHoleR', 'uLedR', 'uBright',
-    'uGlow', 'uAtten', 'uBounces', 'uLP', 'uLC', 'uLid', 'uSeam', 'uAmb', 'uDebug']
+    'uGlow', 'uAtten', 'uBounces', 'uLights', 'uCount', 'uAA', 'uLid', 'uSeam', 'uAmb']
     .forEach((n) => { U[n] = gl.getUniformLocation(prog, n); });
+
+  // Light data lives in a float texture (MAX_LIGHTS x 2) so we can have many LEDs.
+  const lightTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, lightTex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.uniform1i(U.uLights, 0);
+  const lightData = new Float32Array(MAX_LIGHTS * 2 * 4);
 
   // ---------- State ----------
   function state() {
@@ -284,19 +341,21 @@
       glow: v('glow'),
       ledR: v('led') / 2,
       inset: v('inset'),
+      perEdge: Math.min(MAX_PER_EDGE, v('perEdge')),
+      spacing: $('spacing').value,
+      faces: $('faces').checked,
       hole: [v('holeX'), v('holeY')],
       holeR: v('holeD') / 2,
       eye: v('eye'),
       fov: v('fov'),
       seam: v('seam'),
       amb: v('amb'),
-      lid: $('lid').checked,
-      debug: $('debug').checked,
-    };
+      lid: $('lid').checked,    };
   }
 
   // ---------- Render ----------
   let dirty = true;
+  let lowQuality = false;     // 1 sample per pixel while dragging, 4 when idle
   const requestRender = () => { dirty = true; };
 
   function resize() {
@@ -330,18 +389,49 @@
     gl.uniform1f(U.uLid, s.lid ? 1 : 0);
     gl.uniform1f(U.uSeam, s.seam);
     gl.uniform1f(U.uAmb, s.amb);
-    gl.uniform1f(U.uDebug, s.debug ? 1 : 0);
 
-    const lp = [], lc = [];
-    EDGES.forEach((e, i) => {
-      lp.push(...edgePos(e, s.inset));
-      lc.push(...(e.on ? lightColor(i) : [0, 0, 0]));
+    const lights = buildLights(s);
+    const active = lights.filter((l) => l.on).slice(0, MAX_LIGHTS);
+    lightData.fill(0);
+    active.forEach((l, i) => {
+      lightData.set([...l.p, 1], i * 4);                       // row 0
+      lightData.set([...l.c, 1], (MAX_LIGHTS + i) * 4);        // row 1
     });
-    gl.uniform3fv(U.uLP, lp);
-    gl.uniform3fv(U.uLC, lc);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, lightTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, MAX_LIGHTS, 2, 0, gl.RGBA, gl.FLOAT, lightData);
+    gl.uniform1i(U.uCount, active.length);
+    gl.uniform1i(U.uAA, lowQuality ? 1 : 2);
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
-    drawOverview(s, fwd);
+    drawOverview(s, fwd, lights);
+    drawSpacingPreview(s);
+  }
+
+  // One edge drawn flat, showing where the LEDs go for the chosen spacing.
+  function drawSpacingPreview(s) {
+    const c = $('spacingPreview');
+    const ctx = c.getContext('2d');
+    const W = c.width, Hh = c.height, pad = 14;
+    ctx.clearRect(0, 0, W, Hh);
+    const x = (t) => pad + ((t + H) / (2 * H)) * (W - 2 * pad);
+    ctx.strokeStyle = 'rgba(200,210,230,.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x(-H), Hh / 2); ctx.lineTo(x(H), Hh / 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(200,210,230,.55)';
+    [x(-H), x(H)].forEach((px) => ctx.fillRect(px - 1, Hh / 2 - 7, 2, 14));
+    spacingPositions(s.perEdge, s.spacing, s.inset).forEach((t, i) => {
+      const col = lightColor(i, s.perEdge).map((v) => Math.round(v * 255));
+      ctx.fillStyle = `rgb(${col})`;
+      ctx.shadowColor = `rgb(${col})`;
+      ctx.shadowBlur = 6;
+      ctx.beginPath(); ctx.arc(x(t), Hh / 2, 4, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#9a97a8';
+    ctx.font = '10px system-ui';
+    ctx.fillText('hoek', 2, 10);
+    ctx.fillText('hoek', W - 24, 10);
   }
 
   function loop() {
@@ -351,7 +441,7 @@
   }
 
   // ---------- Overview (small 3D sketch) ----------
-  function drawOverview(s, fwd) {
+  function drawOverview(s, fwd, lights) {
     const W = overview.width, Hh = overview.height;
     octx.clearRect(0, 0, W, Hh);
     const ay = -0.6, ax = 0.45, sc = 6.2;
@@ -382,14 +472,16 @@
     octx.beginPath(); fc.forEach((p, i) => (i ? octx.lineTo(p[0], p[1]) : octx.moveTo(p[0], p[1])));
     octx.closePath(); octx.fill();
     // LEDs
-    EDGES.forEach((e, i) => {
-      const p = proj(edgePos(e, s.inset));
-      const c = lightColor(i).map((v) => Math.round(v * 255));
-      octx.fillStyle = e.on ? `rgb(${c})` : '#333';
-      octx.shadowColor = e.on ? `rgb(${c})` : 'transparent';
-      octx.shadowBlur = e.on ? 8 : 0;
-      octx.beginPath(); octx.arc(p[0], p[1], 4, 0, Math.PI * 2); octx.fill();
-    });
+    const r = lights.length > 40 ? 2.5 : 4;
+    lights.map((l) => ({ l, q: proj(l.p) }))
+      .sort((a, b) => a.q[2] - b.q[2])
+      .forEach(({ l, q }) => {
+        const c = l.c.map((v) => Math.round(v * 255));
+        octx.fillStyle = l.on ? `rgb(${c})` : '#333';
+        octx.shadowColor = l.on ? `rgb(${c})` : 'transparent';
+        octx.shadowBlur = l.on ? 8 : 0;
+        octx.beginPath(); octx.arc(q[0], q[1], r, 0, Math.PI * 2); octx.fill();
+      });
     octx.shadowBlur = 0;
     // peephole + view direction
     const hp = proj([s.hole[0], s.hole[1], H]);
@@ -410,19 +502,30 @@
       if (out) out.textContent = fmt[id](ui[id].value);
     });
     const s = state();
-    const tints = ['#ffffff', '#33d9ff', '#4dff59', '#ffcc26', '#ff4de6',
-      '#ff7333', '#5973ff', '#a6ffbf', '#ff404d'];
     const rows = [];
     for (let b = 0; b <= MAX_BOUNCES; b++) {
       const pct = Math.pow(s.atten, b) * 100;
       const label = b === 0 ? 'Direct' : `${b}e reflectie`;
       rows.push(`<tr class="${b > s.bounces ? 'off' : ''}">
-        <td><span class="swatch" style="background:${tints[b]}"></span>${label}</td>
+        <td>${label}</td>
         <td style="width:40%"><div class="bar" style="width:${pct}%"></div></td>
         <td>${pct.toFixed(0)}%</td></tr>`);
     }
     $('levels').innerHTML = rows.join('');
     $('customWrap').hidden = $('colorMode').value !== 'custom';
+    $('faceList').hidden = !$('faces').checked;
+  }
+
+  function buildFaceList() {
+    const box = $('faceList');
+    FACES.forEach((f) => {
+      const l = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = f.on;
+      cb.addEventListener('change', () => { f.on = cb.checked; requestRender(); });
+      l.append(cb, f.name);
+      box.appendChild(l);
+    });
   }
 
   function buildEdgeList() {
@@ -452,6 +555,7 @@
   let drag = null;
   canvas.addEventListener('pointerdown', (e) => {
     drag = { x: e.clientX, y: e.clientY };
+    lowQuality = true;
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener('pointermove', (e) => {
@@ -466,7 +570,7 @@
     drag = { x: e.clientX, y: e.clientY };
     requestRender();
   });
-  const endDrag = () => { drag = null; };
+  const endDrag = () => { drag = null; lowQuality = false; requestRender(); };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
   canvas.addEventListener('wheel', (e) => {
@@ -487,6 +591,7 @@
   window.addEventListener('resize', requestRender);
 
   buildEdgeList();
+  buildFaceList();
   updateLabels();
   loop();
 })();
