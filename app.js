@@ -7,7 +7,7 @@
   'use strict';
 
   const H = 10;               // half the cube size (cm)
-  const MAX_BOUNCES = 4;
+  const MAX_BOUNCES = 8;
 
   // ---------- Edges / lights ----------
   // Each edge runs along one axis; the other two axes are at +-H.
@@ -145,7 +145,11 @@
       if (b == 1) return vec3(0.2, 0.85, 1.0);
       if (b == 2) return vec3(0.3, 1.0, 0.35);
       if (b == 3) return vec3(1.0, 0.8, 0.15);
-      return vec3(1.0, 0.3, 0.9);
+      if (b == 4) return vec3(1.0, 0.3, 0.9);
+      if (b == 5) return vec3(1.0, 0.45, 0.2);
+      if (b == 6) return vec3(0.35, 0.45, 1.0);
+      if (b == 7) return vec3(0.65, 1.0, 0.75);
+      return vec3(1.0, 0.25, 0.3);
     }
 
     vec3 trace(vec3 ro, vec3 rd, float pixAng) {
@@ -406,7 +410,8 @@
       if (out) out.textContent = fmt[id](ui[id].value);
     });
     const s = state();
-    const tints = ['#ffffff', '#33d9ff', '#4dff59', '#ffcc26', '#ff4de6'];
+    const tints = ['#ffffff', '#33d9ff', '#4dff59', '#ffcc26', '#ff4de6',
+      '#ff7333', '#5973ff', '#a6ffbf', '#ff404d'];
     const rows = [];
     for (let b = 0; b <= MAX_BOUNCES; b++) {
       const pct = Math.pow(s.atten, b) * 100;
