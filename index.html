@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Infinity Cube Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="layout">
+    <section class="stage">
+      <canvas id="view" aria-label="Zicht door het kijkgat in de spiegelkubus"></canvas>
+      <div class="hint">Sleep om rond te kijken · scroll om in/uit te zoomen (beeldhoek)</div>
+    </section>
+
+    <aside class="panel">
+      <h1>Infinity Cube</h1>
+      <p class="sub">Spiegelkubus 20 × 20 × 20 cm, gezien door een kijkgat in de voorkant.</p>
+
+      <canvas id="overview" width="260" height="220" aria-label="Overzicht van de kubus"></canvas>
+
+      <details open>
+        <summary>Reflecties</summary>
+        <label>Aantal reflecties <output id="bouncesOut"></output>
+          <input type="range" id="bounces" min="0" max="4" step="1" value="4">
+        </label>
+        <label>Verlies per reflectie <output id="attenOut"></output>
+          <input type="range" id="atten" min="0" max="60" step="1" value="20">
+        </label>
+        <table class="levels" id="levels"></table>
+        <label class="check"><input type="checkbox" id="debug"> Kleur per reflectieniveau</label>
+      </details>
+
+      <details open>
+        <summary>Lampjes (midden van elke ribbe)</summary>
+        <label>Kleur
+          <select id="colorMode">
+            <option value="warm">Warm wit</option>
+            <option value="cool">Koud wit</option>
+            <option value="sint" selected>Sinterklaas (rood / goud)</option>
+            <option value="rainbow">Regenboog</option>
+            <option value="custom">Eigen kleur</option>
+          </select>
+        </label>
+        <label id="customWrap" hidden>Eigen kleur <input type="color" id="customColor" value="#ff3355"></label>
+        <label>Helderheid <output id="brightOut"></output>
+          <input type="range" id="bright" min="0.5" max="12" step="0.1" value="5">
+        </label>
+        <label>Gloed <output id="glowOut"></output>
+          <input type="range" id="glow" min="0" max="2" step="0.05" value="0.6">
+        </label>
+        <label>LED-diameter <output id="ledOut"></output>
+          <input type="range" id="led" min="0.2" max="1.5" step="0.05" value="0.5">
+        </label>
+        <label>Afstand LED tot hoek <output id="insetOut"></output>
+          <input type="range" id="inset" min="0.3" max="3" step="0.1" value="0.8">
+        </label>
+        <div class="edges" id="edges"></div>
+      </details>
+
+      <details open>
+        <summary>Kijkgat &amp; kubus</summary>
+        <label>Gat horizontaal <output id="holeXOut"></output>
+          <input type="range" id="holeX" min="-8" max="8" step="0.5" value="0">
+        </label>
+        <label>Gat verticaal <output id="holeYOut"></output>
+          <input type="range" id="holeY" min="-8" max="8" step="0.5" value="0">
+        </label>
+        <label>Diameter gat <output id="holeDOut"></output>
+          <input type="range" id="holeD" min="0.3" max="4" step="0.1" value="1">
+        </label>
+        <label>Afstand oog tot gat <output id="eyeOut"></output>
+          <input type="range" id="eye" min="0" max="6" step="0.1" value="0">
+        </label>
+        <label>Beeldhoek <output id="fovOut"></output>
+          <input type="range" id="fov" min="40" max="140" step="1" value="100">
+        </label>
+        <label>Naden tussen spiegels <output id="seamOut"></output>
+          <input type="range" id="seam" min="0" max="0.6" step="0.02" value="0.1">
+        </label>
+        <label>Omgevingslicht op spiegels <output id="ambOut"></output>
+          <input type="range" id="amb" min="0" max="0.15" step="0.005" value="0.005">
+        </label>
+        <label class="check"><input type="checkbox" id="lid"> Deksel eraf (bovenkant open)</label>
+      </details>
+
+      <div class="buttons">
+        <button id="resetView">Recht vooruit kijken</button>
+        <button id="shot">Screenshot</button>
+      </div>
+    </aside>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
