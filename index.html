@@ -15,7 +15,7 @@
 
     <aside class="panel">
       <h1>Infinity Cube</h1>
-      <p class="sub">Spiegelkubus 20 × 20 × 20 cm, gezien door een kijkgat in de voorkant.</p>
+      <p class="sub" id="subTitle">Spiegelkubus 20 × 20 × 20 cm, gezien door een kijkgat in het deksel.</p>
 
       <canvas id="overview" width="260" height="220" aria-label="Overzicht van de kubus"></canvas>
 
@@ -65,7 +65,7 @@
         <label>Afstand LED tot spiegel <output id="insetOut"></output>
           <input type="range" id="inset" min="0.3" max="3" step="0.1" value="0.8">
         </label>
-        <label>Helderheid lampjes op voorvlak <output id="frontDimOut"></output>
+        <label>Helderheid lampjes op het vlak met het kijkgat <output id="frontDimOut"></output>
           <input type="range" id="frontDim" min="0" max="100" step="5" value="50">
         </label>
         <label>Indeling
@@ -120,6 +120,12 @@
 
       <details open>
         <summary>Kijkgat &amp; kubus</summary>
+        <label>Kijkgat in
+          <select id="holeFace">
+            <option value="lid" selected>Deksel (van boven naar beneden kijken)</option>
+            <option value="front">Voorkant (van opzij kijken)</option>
+          </select>
+        </label>
         <label>Gat horizontaal <output id="holeXOut"></output>
           <input type="range" id="holeX" min="-8" max="8" step="0.5" value="0">
         </label>
@@ -141,7 +147,7 @@
         <label>Omgevingslicht op spiegels <output id="ambOut"></output>
           <input type="range" id="amb" min="0" max="0.15" step="0.005" value="0.005">
         </label>
-        <label class="check"><input type="checkbox" id="lid"> Deksel eraf (bovenkant open)</label>
+        <label class="check" id="lidWrap"><input type="checkbox" id="lid"> Deksel eraf (bovenkant open)</label>
       </details>
 
       <div class="buttons">

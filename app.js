@@ -1,13 +1,21 @@
 // Infinity Cube Viewer
 // Ray tracer (WebGL fragment shader) for a 20 cm mirror cube seen through a peephole.
 // Coordinates in cm. Cube interior spans -10..10 on every axis.
-//   +x = right, +y = up (lid), +z = front (the face with the peephole).
+//   +x = right, +y = up (lid), +z = front.
+// The peephole sits in the lid (default) or in the front face. The shader always works in a
+// "view frame" in which the peephole face is +z; toView/fromView rotate between the two.
 
 (() => {
   'use strict';
 
   const H = 10;               // half the cube size (cm)
   const MAX_BOUNCES = 8;
+
+  // lid: world (x, y, z) -> view (x, -z, y), so you look down with the front wall at the bottom
+  const holeInLid = (s) => (s ? s.holeFace : $('holeFace').value) === 'lid';
+  const toView = (p, s) => (holeInLid(s) ? [p[0], -p[2], p[1]] : p);
+  const fromView = (p, s) => (holeInLid(s) ? [p[0], p[2], -p[1]] : p);
+  const holeWorld = (s) => fromView([s.hole[0], s.hole[1], H], s);
 
   // ---------- Edges / lights ----------
   // Each edge runs along one axis; the other two axes are at +-H.
@@ -176,15 +184,24 @@
   // minimises how many mirror images overlap when seen from the peephole. Each entry is a
   // point on the mirror surface [normal axis, sign, x, y, z] in cm; neighbours are 6.5-10 cm
   // apart along the mirrors, lid and peephole are kept clear, the wire does not cross itself.
-  const SPREAD_SETS = {
+  const SPREAD_SETS_FRONT = {
     20: [[0,1,10,-8.1,4.7],[1,-1,3.9,-10,2.4],[1,-1,0,-10,-3.3],[1,-1,-2.3,-10,5.9],[1,-1,-8.4,-10,1.8],[0,-1,-10,-5.2,0.8],[0,-1,-10,-0.4,7.7],[2,1,-2.8,-2.6,10],[2,1,5.2,-1.3,10],[0,1,10,-2.9,5.1],[0,1,10,2.3,1.1],[0,1,10,3.8,-7.8],[2,-1,4,8.7,-10],[2,-1,-5.6,7.8,-10],[0,-1,-10,5,-6.1],[0,-1,-10,3.3,2.4],[0,-1,-10,8,8.3],[2,1,-2.2,8.7,10],[2,1,6.2,6.1,10],[0,1,10,8.3,6.5]],
     30: [[1,-1,-2.2,-10,7.5],[1,-1,-4.7,-10,-0.2],[1,-1,4.2,-10,-1.8],[0,1,10,-8.3,1],[1,-1,6.8,-10,-4.2],[1,-1,-0.3,-10,-1.2],[1,-1,-8.7,-10,-3.1],[0,-1,-10,-5.3,3.6],[1,-1,-8.2,-10,6.7],[1,-1,1,-10,8.5],[2,1,6.7,-3.8,10],[0,1,10,2.4,7.2],[0,1,10,0.7,-1.4],[0,1,10,-0.7,-8.1],[2,-1,3,-3.5,-10],[2,-1,-6.1,0.4,-10],[0,-1,-10,-4.3,-5.3],[0,-1,-10,-1.8,2.8],[2,1,-7.8,-1.4,10],[2,1,0.7,3,10],[2,1,8.2,8.3,10],[0,1,10,7.5,2.6],[0,1,10,6.9,-5.6],[2,-1,4.6,5.1,-10],[2,-1,-4.7,7,-10],[0,-1,-10,8.4,-6.4],[0,-1,-10,5,0.5],[0,-1,-10,5.3,7.9],[2,1,-3.5,8.1,10],[0,-1,-10,8.3,8.2]],
     40: [[1,-1,1,-10,2.3],[1,-1,-0.6,-10,-6],[1,-1,-3.6,-10,1.9],[1,-1,-7.9,-10,-6.4],[0,-1,-10,-5.2,0.1],[0,-1,-10,-6.1,6.8],[1,-1,-8.3,-10,1.1],[1,-1,-8.6,-10,8.1],[1,-1,0.6,-10,7.9],[1,-1,6.9,-10,3.2],[1,-1,8.6,-10,-4.8],[1,-1,2.4,-10,-8.1],[2,-1,-1.1,-5.8,-10],[2,-1,-8.8,-1.2,-10],[0,-1,-10,-2.6,-3],[0,-1,-10,-2.8,6.8],[2,1,-4.6,-4.9,10],[2,1,2.8,-2.5,10],[0,1,10,-4.3,7.4],[0,1,10,-1.2,0.5],[0,1,10,0.8,-6.4],[2,-1,3.9,-0.6,-10],[2,-1,-4.4,3.1,-10],[0,-1,-10,8.6,-7.5],[0,-1,-10,8.5,2.2],[0,-1,-10,6.7,8.5],[2,1,-2.3,7.2,10],[2,1,7.5,8.1,10],[0,1,10,5.1,3.2],[0,1,10,3.8,-5.1],[2,-1,5.7,6.9,-10],[2,-1,-0.4,4.1,-10],[2,-1,-8.7,4.2,-10],[0,-1,-10,0.5,-2.6],[0,-1,-10,2.2,5.3],[2,1,-6.6,2,10],[2,1,2.9,4.2,10],[0,1,10,-0.1,8.6],[0,1,10,8.1,4],[0,1,10,7.5,-5.9]],
     50: [[1,-1,-5,-10,-5],[1,-1,3.1,-10,0.7],[1,-1,-5.3,-10,3.3],[1,-1,-1,-10,-1.9],[1,-1,-8.7,-10,-7.4],[1,-1,-8.3,-10,2.2],[2,1,-8.8,-8.5,10],[1,-1,-2.4,-10,4.9],[1,-1,6.1,-10,7.9],[0,1,10,-6.9,2.7],[0,1,10,-4,-3.2],[2,-1,8.5,-5.1,-10],[2,-1,0.3,-6.9,-10],[2,-1,-8.7,-3.5,-10],[0,-1,-10,-5.7,-1.7],[0,-1,-10,-6.6,6.5],[2,1,-3.8,-8.5,10],[1,-1,1.6,-10,7.1],[0,1,10,-8.5,7.1],[1,-1,8.3,-10,0.5],[1,-1,3.9,-10,-7.1],[2,-1,3.1,-4.4,-10],[2,-1,-5.3,-1.2,-10],[0,-1,-10,0.2,-5.1],[0,-1,-10,-1.6,3.9],[2,1,-6.6,-0.2,10],[2,1,1.2,3.3,10],[2,1,8.6,-1,10],[0,1,10,-2.6,2.4],[0,1,10,1.6,-5.9],[2,-1,5.7,2.8,-10],[2,-1,-3.4,1.8,-10],[0,-1,-10,0,-8.8],[0,-1,-10,2.9,-0.7],[0,-1,-10,3.7,5.8],[2,1,-5.4,7.5,10],[2,1,2.4,6.8,10],[0,1,10,5.3,8.4],[0,1,10,0.3,1],[0,1,10,5,-6.7],[2,-1,3.8,5.9,-10],[2,-1,-5,4.3,-10],[0,-1,-10,3.4,-7.6],[0,-1,-10,8.7,0.5],[0,-1,-10,7.2,8.4],[2,1,-2.1,8.7,10],[2,1,6.8,8.5,10],[0,1,10,6.4,4.4],[0,1,10,8.2,-5],[2,-1,7.2,6.4,-10]],
   };
 
-  function buildSpreadLights(d, count) {
-    return (SPREAD_SETS[count] || SPREAD_SETS[50]).map(([a, sg, x, y, z]) => {
+  // Peephole in the lid: the strip starts in the middle of a face (LED 1).
+  const SPREAD_SETS_LID = {
+    20: [[0,1,10,0,0],[0,1,10,-3.1,6.6],[0,1,10,-1.5,-3],[2,-1,8.8,-5.3,-10],[2,-1,-0.3,-3.6,-10],[2,-1,-6.1,0.3,-10],[2,-1,3,-2,-10],[0,1,10,2.1,-8.3],[0,1,10,7.8,-1.2],[0,1,10,0.1,3.8],[2,1,8.6,3.7,10],[2,1,4.1,-5.1,10],[2,1,-5.4,-6.8,10],[2,1,-7.7,2.2,10],[2,1,1.9,3.9,10],[2,1,-1.1,-5.5,10],[1,-1,-7.5,-10,7.6],[1,-1,-2.1,-10,1.9],[1,-1,-6.3,-10,-4.5],[0,-1,-10,-5.3,-1.8]],
+    30: [[1,-1,0,-10,0],[1,-1,0.9,-10,-8.7],[1,-1,4.6,-10,-2.6],[1,-1,8.2,-10,6.4],[0,1,10,-4.2,6.5],[2,1,8.7,1.8,10],[2,1,2.6,6.1,10],[2,1,0.7,-3.4,10],[2,1,-7.2,-6.2,10],[2,1,-0.7,-6.3,10],[1,-1,-3.8,-10,4.8],[0,-1,-10,-8.4,-0.7],[0,-1,-10,-1.2,-7],[0,-1,-10,7.4,-5.7],[0,-1,-10,6.8,1.6],[0,-1,-10,3.3,8.8],[0,-1,-10,-6,6.9],[0,-1,-10,-2.7,0.4],[1,-1,-8.5,-10,-3.9],[2,-1,-8.7,-7.5,-10],[2,-1,-3.8,0,-10],[2,-1,5.2,2.9,-10],[2,-1,8.3,-3.6,-10],[0,1,10,5,-8.4],[0,1,10,4.9,-1.5],[0,1,10,8,7.8],[2,1,5.8,5.4,10],[0,1,10,5.7,4.4],[0,1,10,3.4,-4.6],[0,1,10,-0.9,2]],
+    40: [[1,-1,0,-10,0],[1,-1,4,-10,-8.8],[1,-1,-3.5,-10,-6.1],[1,-1,-3.4,-10,3.4],[1,-1,5.6,-10,4.6],[2,1,8.7,-8.5,10],[0,1,10,-7.8,4.4],[0,1,10,-1,-1.1],[0,1,10,2.1,-7.3],[0,1,10,7.1,-2.3],[0,1,10,1.3,5.3],[2,1,8.1,2.9,10],[2,1,1.3,4.8,10],[2,1,-0.5,-3.3,10],[2,1,-4,3.5,10],[0,-1,-10,4.3,7.9],[0,-1,-10,-4.7,4.4],[0,-1,-10,0.7,-3.7],[2,-1,-7,0.1,-10],[2,-1,-0.5,1,-10],[2,-1,6.2,6.2,-10],[2,-1,-2.1,8.6,-10],[2,-1,-8.7,5.5,-10],[0,-1,-10,4.5,-1.6],[0,-1,-10,0.4,-6.9],[0,-1,-10,-5.5,0.2],[0,-1,-10,-7.1,7.7],[1,-1,-6.4,-10,6.7],[2,1,-4.8,-5.2,10],[2,1,4.5,-7.4,10],[1,-1,1.6,-10,4],[1,-1,8.8,-10,0.5],[0,1,10,-8.8,-8.8],[2,-1,8.8,-0.8,-10],[2,-1,2.2,2.4,-10],[2,-1,5.8,-3.1,-10],[2,-1,-2.5,-6.5,-10],[0,-1,-10,-5.8,-8.8],[2,-1,-3.7,0.7,-10],[2,-1,0.9,7.3,-10]],
+    50: [[0,1,10,0,0],[0,1,10,2.2,8.4],[0,1,10,-7,7.1],[1,-1,7.7,-10,0.1],[1,-1,1.7,-10,3.3],[1,-1,3,-10,-5.8],[2,-1,-1.7,-6,-10],[2,-1,-5.9,2.4,-10],[2,-1,1.2,4.1,-10],[2,-1,8.1,-3,-10],[0,1,10,-8.7,-6.1],[0,1,10,0.5,-3.3],[0,1,10,7.5,1.4],[0,1,10,7.3,-5.1],[2,-1,5.8,7.8,-10],[2,-1,-1.9,7.7,-10],[0,-1,-10,7.2,-8.7],[0,-1,-10,3.5,-2],[0,-1,-10,-2.2,3.1],[0,-1,-10,-5.9,-3.5],[1,-1,-7.2,-10,2.2],[0,-1,-10,-8.8,8.5],[2,1,-3.5,-5.7,10],[2,1,-1.3,1.1,10],[2,1,-8.1,6.7,10],[2,1,0.3,7.8,10],[2,1,8.3,8.4,10],[2,1,6.6,0.8,10],[2,1,-0.2,-5.4,10],[1,-1,-4.8,-10,8.3],[2,1,-8.6,-4.8,10],[0,-1,-10,0,5.2],[2,1,-8.2,0.6,10],[0,-1,-10,5.6,5.9],[2,1,-4.9,4.4,10],[2,1,4.2,7.6,10],[2,1,3.2,-1.8,10],[2,1,6.5,4,10],[0,1,10,-1.8,5.6],[0,1,10,-5,-1.3],[1,-1,8.6,-10,3.5],[1,-1,1,-10,8.7],[1,-1,-4.3,-10,3.5],[1,-1,-5.9,-10,-5.8],[0,-1,-10,-5.1,-8.3],[0,-1,-10,-3.7,-0.3],[0,-1,-10,3.4,-7],[2,-1,-4.6,-0.8,-10],[0,-1,-10,0.6,-8.8],[2,-1,-6.3,6.1,-10]],
+  };
+
+  function buildSpreadLights(d, count, lid) {
+    const sets = lid ? SPREAD_SETS_LID : SPREAD_SETS_FRONT;
+    return (sets[count] || sets[50]).map(([a, sg, x, y, z]) => {
       const p = [x, y, z];
       p[a] = sg * d;                                   // LED centre sits `inset` off the mirror
       return { p, on: true, strip: true };
@@ -193,7 +210,7 @@
 
   function buildLights(s) {
     const d = H - s.inset;
-    const lights = s.layout === 'spread' ? buildSpreadLights(d, s.spreadCount)
+    const lights = s.layout === 'spread' ? buildSpreadLights(d, s.spreadCount, holeInLid(s))
       : s.layout === 'grid' ? buildGridLights(d)
       : s.layout === 'helix' ? buildHelixLights(s, d)
       : s.layout === 'fixed' ? buildFixedLights(d) : buildFreeLights(s, d);
@@ -581,7 +598,7 @@
     // LEDs on the front face sit right next to your eye and look huge; this dims them.
     const front = parseFloat($('frontDim').value) / 100;
     lights.forEach((l) => {
-      const k = l.p[2] > 0.85 * faceDist(l.p) ? front : 1;
+      const k = toView(l.p)[2] > 0.85 * faceDist(l.p) ? front : 1;
       l.c = fx.fn(l, t, lights).map((v) => Math.max(0, v) * k);
     });
   }
@@ -783,7 +800,9 @@
       fov: v('fov'),
       seam: v('seam'),
       amb: v('amb'),
-      lid: $('lid').checked,    };
+      holeFace: $('holeFace').value,
+      lid: $('holeFace').value === 'front' && $('lid').checked,
+    };
   }
 
   // ---------- Render ----------
@@ -831,7 +850,7 @@
     const active = lights.filter((l) => l.on).slice(0, MAX_LIGHTS);
     lightData.fill(0);
     active.forEach((l, i) => {
-      lightData.set([...l.p, 1], i * 4);                       // row 0
+      lightData.set([...toView(l.p, s), 1], i * 4);           // row 0 (view frame)
       lightData.set([...l.c, 1], (MAX_LIGHTS + i) * 4);        // row 1
     });
     gl.activeTexture(gl.TEXTURE0);
@@ -914,8 +933,8 @@
       octx.beginPath(); octx.moveTo(pa[0], pa[1]); octx.lineTo(pb[0], pb[1]); octx.stroke();
     });
     octx.setLineDash([]);
-    // front face tint
-    const fc = [[-H, -H, H], [H, -H, H], [H, H, H], [-H, H, H]].map(proj);
+    // peephole face tint
+    const fc = [[-H, -H, H], [H, -H, H], [H, H, H], [-H, H, H]].map((p) => proj(fromView(p, s)));
     octx.fillStyle = 'rgba(120,160,255,.07)';
     octx.beginPath(); fc.forEach((p, i) => (i ? octx.lineTo(p[0], p[1]) : octx.moveTo(p[0], p[1])));
     octx.closePath(); octx.fill();
@@ -951,15 +970,15 @@
       });
     octx.shadowBlur = 0;
     // peephole + view direction
-    const hp = proj([s.hole[0], s.hole[1], H]);
-    const tip = proj([s.hole[0] + fwd[0] * 8, s.hole[1] + fwd[1] * 8, H + fwd[2] * 8]);
+    const hp = proj(holeWorld(s));
+    const tip = proj(fromView([s.hole[0] + fwd[0] * 8, s.hole[1] + fwd[1] * 8, H + fwd[2] * 8], s));
     octx.strokeStyle = '#7fd4ff'; octx.lineWidth = 2;
     octx.beginPath(); octx.moveTo(hp[0], hp[1]); octx.lineTo(tip[0], tip[1]); octx.stroke();
     octx.fillStyle = '#000'; octx.strokeStyle = '#7fd4ff';
     octx.beginPath(); octx.arc(hp[0], hp[1], 4, 0, Math.PI * 2); octx.fill(); octx.stroke();
     octx.fillStyle = '#9a97a8'; octx.font = '11px system-ui';
-    octx.fillText('kijkgat (voorkant)', 8, Hh - 10);
-    octx.fillText(s.lid ? 'deksel eraf' : 'deksel = spiegel', W - 100, 16);
+    octx.fillText(holeInLid(s) ? 'kijkgat (deksel)' : 'kijkgat (voorkant)', 8, Hh - 10);
+    if (!holeInLid(s)) octx.fillText(s.lid ? 'deksel eraf' : 'deksel = spiegel', W - 100, 16);
   }
 
   // ---------- Visibility score ----------
@@ -973,7 +992,7 @@
     const ims = [];
     lights.forEach((l) => {
       if (!l.on) return;
-      const c = l.p;
+      const c = toView(l.p, s);                   // view frame: peephole face is +z
       for (let i = -B; i <= B; i++) for (let j = -B; j <= B; j++) for (let k = -B; k <= 0; k++) {
         if (Math.abs(i) + Math.abs(j) + Math.abs(k) > B) continue;
         const dx = 20 * i + (i & 1 ? -c[0] : c[0]) - eye[0];
@@ -1075,17 +1094,19 @@
       }
       out.push(`<text x="${x + S / 2}" y="${y + 1.3}" font-size="0.9" text-anchor="middle" fill="#666" font-weight="bold">${label}</text>`);
     };
-    WALLS.forEach((w, i) => panel(i * S, S, w.toUpperCase() + (i === 0 ? ' (kijkgat)' : '')));
+    const lidHole = holeInLid(s);
+    WALLS.forEach((w, i) => panel(i * S, S, w.toUpperCase() + (i === 0 && !lidHole ? ' (kijkgat)' : '')));
     panel(0, 2 * S, 'BODEM');
-    panel(0, 0, lidHasLeds ? 'DEKSEL' : 'DEKSEL – geen lampjes', 'stroke-dasharray="0.4 0.3" fill="#fafafa"');
+    panel(0, 0, (lidHole ? 'DEKSEL (kijkgat)' : 'DEKSEL') + (lidHasLeds ? '' : ' – geen lampjes'),
+      'stroke-dasharray="0.4 0.3" fill="#fafafa"');
     // fold lines between walls
     for (let i = 1; i < 4; i++) {
       out.push(`<line x1="${i * S}" y1="${S}" x2="${i * S}" y2="${2 * S}" stroke="#333" stroke-width="0.06" stroke-dasharray="0.5 0.3"/>`);
     }
     out.push(`<text x="${2 * S}" y="${2 * S + 1.5}" font-size="0.7" fill="#888" text-anchor="middle">--- = vouwlijn (hoek van de kubus) · raster 5 cm · binnenaanzicht</text>`);
 
-    // peephole on "voor"
-    const hp = netPos([s.hole[0], s.hole[1], H]);
+    // peephole (lid or "voor")
+    const hp = netPos(holeWorld(s));
     out.push(`<circle cx="${fmt1(hp.X)}" cy="${fmt1(hp.Y)}" r="${fmt1(s.holeR)}" fill="#000"/>`);
     out.push(`<text x="${fmt1(hp.X + s.holeR + 0.3)}" y="${fmt1(hp.Y + 0.25)}" font-size="0.6" fill="#000">kijkgat</text>`);
 
@@ -1278,9 +1299,14 @@
     $('freeLayout').hidden = layout !== 'free';
     $('helixLayout').hidden = layout !== 'helix';
     $('spreadLayout').hidden = layout !== 'spread';
+    $('lidWrap').hidden = holeInLid(s);
+    $('subTitle').textContent = 'Spiegelkubus 20 × 20 × 20 cm, gezien door een kijkgat in '
+      + (holeInLid(s) ? 'het deksel.' : 'de voorkant.');
     if (layout === 'spread') {
       $('layoutDesc').textContent =
-        `Eén strip van ${$('spreadCount').value} LEDs over bodem en wanden, bewust onregelmatig: de posities zijn door een `
+        `Eén strip van ${$('spreadCount').value} LEDs over bodem en wanden`
+        + (holeInLid(s) ? ', beginnend in het midden van een vlak (LED 1)' : '')
+        + ', bewust onregelmatig: de posities zijn door een '
         + 'optimalisatie zo gekozen dat de spiegelbeelden elkaar zo min mogelijk bedekken of op één lijn vallen. '
         + 'Elke wand heeft een eigen patroon. Afstand tussen LEDs 6,5–10 cm langs de spiegel; deksel en kijkgat blijven vrij.';
     } else if (layout === 'grid') {
