@@ -100,9 +100,49 @@
     return lights;
   }
 
+  // LED strip wound as a helix along the 4 side walls, from the floor up to just under the
+  // lid. The strip runs flat on the mirrors, so neighbouring LEDs are exactly one strip gap
+  // apart (measured along the wall). The strip never touches the lid. The winding phase is
+  // chosen so the strip passes the peephole halfway between two turns, keeping the hole clear.
+  // Perimeter coordinate s: 0 = front wall at x = 0, increasing towards the right wall.
+  function perimeterPoint(s, d) {
+    const P = 8 * d;
+    s = ((s % P) + P) % P;
+    if (s < d) return [s, d];                       // front, x: 0 -> d
+    if (s < 3 * d) return [d, d - (s - d)];         // right, z: d -> -d
+    if (s < 5 * d) return [d - (s - 3 * d), -d];    // back, x: d -> -d
+    if (s < 7 * d) return [-d, -d + (s - 5 * d)];   // left, z: -d -> d
+    return [-d + (s - 7 * d), d];                   // front, x: -d -> 0
+  }
+
+  function helixInfo(s, d) {
+    const n = s.stripCount, gap = s.stripGap;
+    const P = 8 * d;                                 // one turn around the walls
+    const yb = -d, yt = d - s.lidGap;                // floor corner up to under the lid
+    const len = (n - 1) * gap;                       // strip length between first and last LED
+    const rise = len > 0 ? (yt - yb) / len : 0;      // height gained per cm of strip
+    const pitch = rise * P;                          // height between two turns
+    return { n, gap, P, yb, yt, len, rise, pitch, turns: len / P };
+  }
+
+  function buildHelixLights(s, d) {
+    const h = helixInfo(s, d);
+    // phase: at the peephole the strip should be half a turn-height away from the hole
+    const sHole = ((s.hole[0] % h.P) + h.P) % h.P;
+    const want = s.hole[1] + h.pitch / 2 - h.yb;
+    const s0 = h.rise > 0 ? sHole - want / h.rise : 0;
+    const lights = [];
+    for (let k = 0; k < h.n; k++) {
+      const [x, z] = perimeterPoint(s0 + k * h.gap, d);
+      lights.push({ p: [x, h.yb + k * h.gap * h.rise, z], on: true, strip: true });
+    }
+    return lights;
+  }
+
   function buildLights(s) {
     const d = H - s.inset;
-    const lights = s.layout === 'fixed' ? buildFixedLights(d) : buildFreeLights(s, d);
+    const lights = s.layout === 'helix' ? buildHelixLights(s, d)
+      : s.layout === 'fixed' ? buildFixedLights(d) : buildFreeLights(s, d);
     lights.forEach((l, i) => {
       l.i = i;
       l.base = lightColor(i, lights.length);   // colour from the "Basiskleur" setting
@@ -140,7 +180,8 @@
 
   const ui = {};
   ['bounces', 'atten', 'bright', 'glow', 'led', 'inset', 'perEdge', 'holeX', 'holeY', 'holeD',
-    'eye', 'fov', 'seam', 'amb', 'speed', 'frontDim'].forEach((id) => { ui[id] = $(id); });
+    'eye', 'fov', 'seam', 'amb', 'speed', 'frontDim', 'stripCount', 'stripGap', 'lidGap']
+    .forEach((id) => { ui[id] = $(id); });
 
   const fmt = {
     bounces: (v) => `${v}`,
@@ -159,6 +200,9 @@
     amb: (v) => (+v).toFixed(3),
     speed: (v) => (+v === 0 ? 'pauze' : `${(+v).toFixed(2)}×`),
     frontDim: (v) => `${v}%`,
+    stripCount: (v) => `${v}`,
+    stripGap: (v) => `${(+v).toFixed(1)} cm`,
+    lidGap: (v) => `${(+v).toFixed(1)} cm`,
   };
 
   // ---------- Camera ----------
@@ -237,7 +281,70 @@
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const DIM = 0.03;
 
+  const smooth = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+  const SHOW = ['helixComets', 'candyCane', 'risingRings', 'fill', 'twinkle'];
+  const SHOW_T = 10, SHOW_FADE = 1.5;
+
   const EFFECTS = {
+    showreel: {
+      name: '★ Spiraal-show (wisselt elke 10 s)',
+      desc: 'Speelt achter elkaar: kometen langs de spiraal → zuurstok → stijgende ringen → vullen en leeglopen → sterren. '
+        + 'Elke overgang vloeit zacht over.',
+      fn: (l, t, all) => {
+        const i = Math.floor(t / SHOW_T);
+        const local = t - i * SHOW_T;
+        const at = (j) => SHOW[((j % SHOW.length) + SHOW.length) % SHOW.length];   // also safe for t < 0
+        const cur = EFFECTS[at(i)].fn(l, t, all);
+        if (local < SHOW_T - SHOW_FADE) return cur;
+        const next = EFFECTS[at(i + 1)].fn(l, t, all);
+        return mix(cur, next, smooth(SHOW_T - SHOW_FADE, SHOW_T, local));
+      },
+    },
+    helixComets: {
+      name: '☄ Kometen langs de strip',
+      desc: 'Drie gekleurde kometen met een lange staart klimmen in stripvolgorde omhoog. '
+        + 'Bij de spiraal-indeling draaien ze rond de wanden; in de spiegels klimmen er eindeloos veel spiralen.',
+      fn: (l, t, all) => {
+        const n = all.length;
+        let c = mul(l.base, 0.015);
+        for (let j = 0; j < 3; j++) {
+          const k = chase(l.i, t * 7 + (j * n) / 3, n, 0.7, 0.4);
+          c = c.map((v, m) => v + hue(j * 120 + t * 12)[m] * k);
+        }
+        return c.map((v) => Math.min(1, v));
+      },
+    },
+    candyCane: {
+      name: '⚕ Zuurstok (rood-witte draai)',
+      desc: 'Schuine rood-witte banden draaien rond de kubus, zoals een zuurstok of de staf van de Sint. '
+        + 'De zij-spiegels herhalen ze tot een eindeloze draaiende zuil.',
+      fn: (l, t) => {
+        const a = Math.atan2(l.p[2], l.p[0]);
+        const f = Math.sin(2 * a + l.p[1] * 0.35 - t * 2.2);
+        return mix(mul(WHITE, 0.75), RED, smooth(-0.35, 0.35, f));
+      },
+    },
+    risingRings: {
+      name: '◎ Stijgende ringen',
+      desc: 'Een ring licht op en stijgt van de bodem naar het deksel, elke ring een nieuwe kleur. '
+        + 'Via bodem- en dekselspiegel lijkt hij eindeloos door te stijgen.',
+      fn: (l, t) => {
+        const cycle = t * 0.45;
+        const y = -12 + (cycle % 1) * 24;
+        const k = Math.exp(-Math.pow((l.p[1] - y) / 1.8, 2));
+        return mul(hue(Math.floor(cycle) * 65 + 10), 0.02 + k);
+      },
+    },
+    fill: {
+      name: '▮ Vullen en leeglopen',
+      desc: 'De strip vult zich LED voor LED in regenboogkleuren van onder naar boven en loopt daarna weer leeg.',
+      fn: (l, t, all) => {
+        const n = all.length;
+        const c = (t * 10) % (2 * n);
+        const k = c < n ? Math.min(1, Math.max(0, c - l.i)) : 1 - Math.min(1, Math.max(0, c - n - l.i));
+        return mul(hue((l.i * 300) / n), 0.02 + k);
+      },
+    },
     static: {
       name: 'Vast (basiskleur)',
       desc: 'Alle LEDs branden constant in de basiskleur.',
@@ -611,6 +718,9 @@
       perEdge: Math.min(MAX_PER_EDGE, v('perEdge')),
       spacing: $('spacing').value,
       layout: $('layout').value,
+      stripCount: v('stripCount'),
+      stripGap: v('stripGap'),
+      lidGap: v('lidGap'),
       faces: $('faces').checked,
       hole: [v('holeX'), v('holeY')],
       holeR: v('holeD') / 2,
@@ -711,7 +821,8 @@
   const animating = () => $('effect').value !== 'static' && parseFloat(ui.speed.value) > 0;
 
   function loop(now = performance.now()) {
-    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    // rAF timestamps can be slightly older than performance.now(), so never step backwards
+    const dt = Math.min(0.1, Math.max(0, (now - lastFrame) / 1000));
     lastFrame = now;
     resize();
     if (animating()) {
@@ -753,6 +864,20 @@
     octx.fillStyle = 'rgba(120,160,255,.07)';
     octx.beginPath(); fc.forEach((p, i) => (i ? octx.lineTo(p[0], p[1]) : octx.moveTo(p[0], p[1])));
     octx.closePath(); octx.fill();
+    // LED strip wire (in strip order)
+    if (lights.length && lights[0].strip) {
+      octx.strokeStyle = 'rgba(255,255,255,.22)';
+      octx.lineWidth = 1;
+      octx.beginPath();
+      lights.forEach((l, i) => {
+        const q = proj(l.p);
+        if (i) octx.lineTo(q[0], q[1]); else octx.moveTo(q[0], q[1]);
+      });
+      octx.stroke();
+      const a = proj(lights[0].p);
+      octx.fillStyle = '#9a97a8'; octx.font = '10px system-ui';
+      octx.fillText('start', a[0] + 5, a[1] + 10);
+    }
     // LEDs
     const r = lights.length > 40 ? 2.5 : 4;
     lights.map((l) => ({ l, q: proj(l.p) }))
@@ -801,19 +926,30 @@
     $('levels').innerHTML = rows.join('');
     $('customWrap').hidden = $('colorMode').value !== 'custom';
     $('faceList').hidden = !$('faces').checked;
-    const fixed = $('layout').value === 'fixed';
-    $('freeLayout').hidden = fixed;
-    $('layoutDesc').textContent = fixed
-      ? 'Achter, links en onder: een lampje in elke hoek en één in het midden (7 hoeken + 3 midden). '
-        + 'Voor, rechts en boven: 4 lampjes per vlak in een 2 × 2 raster, space-around (12). Totaal 22.'
-      : 'Stel zelf het aantal lampjes per ribbe, de verdeling en de lampjes in het midden van de vlakken in.';
+    const layout = $('layout').value;
+    $('freeLayout').hidden = layout !== 'free';
+    $('helixLayout').hidden = layout !== 'helix';
+    if (layout === 'helix') {
+      const h = helixInfo(s, H - s.inset);
+      $('layoutDesc').textContent =
+        `De strip loopt als spiraal langs voor, rechts, achter en links, van de bodem tot net onder het deksel. `
+        + `${h.turns.toFixed(1)} rondes, ${(h.pitch * 10).toFixed(0)} mm tussen de rondes, `
+        + `${(h.len / 100).toFixed(2)} m strip. Bij het kijkgat loopt de strip precies tussen twee rondes door.`;
+    } else if (layout === 'fixed') {
+      $('layoutDesc').textContent =
+        'Achter, links en onder: een lampje in elke hoek en één in het midden (7 hoeken + 3 midden). '
+        + 'Voor, rechts en boven: 4 lampjes per vlak in een 2 × 2 raster, space-around (12). Totaal 22.';
+    } else {
+      $('layoutDesc').textContent =
+        'Stel zelf het aantal lampjes per ribbe, de verdeling en de lampjes in het midden van de vlakken in.';
+    }
     $('effectDesc').textContent = (EFFECTS[$('effect').value] || EFFECTS.static).desc;
   }
 
   function buildEffectList() {
     const sel = $('effect');
     Object.entries(EFFECTS).forEach(([key, fx]) => sel.add(new Option(fx.name, key)));
-    sel.value = 'static';
+    sel.value = 'showreel';
   }
 
   function buildFaceList() {
