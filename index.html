@@ -27,11 +27,23 @@
         <label>Verlies per reflectie <output id="attenOut"></output>
           <input type="range" id="atten" min="0" max="60" step="1" value="30">
         </label>
-        <table class="levels" id="levels"></table>      </details>
+        <table class="levels" id="levels"></table>
+      </details>
 
       <details open>
-        <summary>Lampjes (midden van elke ribbe)</summary>
-        <label>Kleur
+        <summary>Effect (elke LED apart aangestuurd)</summary>
+        <label>Effect
+          <select id="effect"></select>
+        </label>
+        <p class="desc" id="effectDesc"></p>
+        <label>Snelheid <output id="speedOut"></output>
+          <input type="range" id="speed" min="0" max="3" step="0.05" value="1">
+        </label>
+      </details>
+
+      <details open>
+        <summary>Lampjes</summary>
+        <label>Basiskleur
           <select id="colorMode">
             <option value="warm">Warm wit</option>
             <option value="cool">Koud wit</option>
@@ -65,7 +77,7 @@
         </label>
         <canvas id="spacingPreview" width="280" height="34" aria-label="Voorbeeld van de verdeling op één ribbe"></canvas>
         <div class="edges" id="edges"></div>
-        <label class="check"><input type="checkbox" id="faces"> LED in het midden van elk vlak</label>
+        <label class="check"><input type="checkbox" id="faces" checked> LED in het midden van elk vlak</label>
         <div class="edges" id="faceList" hidden></div>
       </details>
 

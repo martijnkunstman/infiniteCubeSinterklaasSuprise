@@ -89,7 +89,11 @@
         lights.push({ p, on: f.on });
       });
     }
-    lights.forEach((l, i) => { l.c = lightColor(i, lights.length); });
+    lights.forEach((l, i) => {
+      l.i = i;
+      l.base = lightColor(i, lights.length);   // colour from the "Basiskleur" setting
+      l.c = l.base;                            // colour * intensity actually sent to the LED
+    });
     return lights;
   }
 
@@ -101,7 +105,7 @@
 
   const ui = {};
   ['bounces', 'atten', 'bright', 'glow', 'led', 'inset', 'perEdge', 'holeX', 'holeY', 'holeD',
-    'eye', 'fov', 'seam', 'amb'].forEach((id) => { ui[id] = $(id); });
+    'eye', 'fov', 'seam', 'amb', 'speed'].forEach((id) => { ui[id] = $(id); });
 
   const fmt = {
     bounces: (v) => `${v}`,
@@ -118,6 +122,7 @@
     fov: (v) => `${v}°`,
     seam: (v) => `${(v * 10).toFixed(1)} mm`,
     amb: (v) => (+v).toFixed(3),
+    speed: (v) => (+v === 0 ? 'pauze' : `${(+v).toFixed(2)}×`),
   };
 
   // ---------- Camera ----------
@@ -156,6 +161,146 @@
       case 'sint':
       default: return i % 2 ? hexToRgb('#ffc23a') : hexToRgb('#ff2424');
     }
+  }
+
+  // ---------- Effects: every LED gets its own colour + intensity per frame ----------
+  // Each effect maps (light, time, all lights) -> [r, g, b]; the length of the vector is the
+  // intensity (0 = off, 1 = full). Most effects use the LED's 3D position so they work for
+  // any number of LEDs per edge.
+  const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+  const hue = (h, l = 0.55) => hslToRgb(((h % 360) + 360) % 360, 1, l);
+  const mul = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+  const mix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+  const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const RED = [1, 0.06, 0.05], GOLD = [1, 0.7, 0.12], WHITE = [1, 0.92, 0.8], ICE = [0.6, 0.8, 1];
+
+  const EFFECTS = {
+    static: {
+      name: 'Vast (basiskleur)',
+      desc: 'Alle LEDs branden constant in de basiskleur.',
+      fn: (l) => l.base,
+    },
+    breathe: {
+      name: 'Ademen',
+      desc: 'Alle LEDs zwellen langzaam samen aan en uit in de basiskleur. De hele tunnel ademt mee.',
+      fn: (l, t) => mul(l.base, 0.08 + 0.92 * Math.pow(0.5 - 0.5 * Math.cos(t * 1.4), 2)),
+    },
+    scanner: {
+      name: 'Scanner voor ↔ achter (tunnel-zoom)',
+      desc: 'Een lichtvlak schuift van voor naar achter. Door de spiegels lijkt het eindeloos de diepte in te rijden.',
+      fn: (l, t) => {
+        const z = Math.sin(t * 1.1) * 10;
+        const d = l.p[2] - z;
+        return mul(l.base, 0.04 + Math.exp(-(d * d) / 5));
+      },
+    },
+    lighthouse: {
+      name: 'Vuurtoren (draaiende bundel)',
+      desc: 'Een bundel draait horizontaal rond. In de spiegels zie je hem als een draaiende spaak door het hele raster.',
+      fn: (l, t) => {
+        if (Math.hypot(l.p[0], l.p[2]) < 1) return mul(l.base, 0.25);   // top / bottom centre
+        const d = wrapPi(Math.atan2(l.p[2], l.p[0]) - t * 1.6);
+        return mul(l.base, 0.03 + Math.exp(-(d * d) / 0.18));
+      },
+    },
+    rainbowRise: {
+      name: 'Regenboog-golf omhoog',
+      desc: 'Kleurbanden stijgen op van bodem naar deksel. Boven en onder vermenigvuldigen tot een eindeloze kleurenschacht.',
+      fn: (l, t) => hue(l.p[1] * 14 - t * 80),
+    },
+    spiral: {
+      name: 'Spiraal (kurkentrekker)',
+      desc: 'Kleur volgt de hoek rond de kubus plus de hoogte: een draaiende helix door alle reflecties.',
+      fn: (l, t) => {
+        const a = Math.atan2(l.p[2], l.p[0]) * 180 / Math.PI;
+        return hue(a + l.p[1] * 12 + t * 70);
+      },
+    },
+    heartbeat: {
+      name: 'Hartslag vanuit het midden',
+      desc: 'Een dubbele rode klop die van het midden naar buiten golft: vlakken eerst, dan ribben, dan hoeken.',
+      fn: (l, t) => {
+        const r = Math.hypot(l.p[0], l.p[1], l.p[2]);
+        const ph = ((t - r * 0.035) % 1.3 + 1.3) % 1.3;
+        const beat = Math.exp(-Math.pow((ph - 0.1) / 0.06, 2)) + 0.6 * Math.exp(-Math.pow((ph - 0.32) / 0.06, 2));
+        return mul(RED, 0.04 + beat);
+      },
+    },
+    twinkle: {
+      name: 'Twinkelende sterren',
+      desc: 'Elke LED fonkelt op zijn eigen moment, warm-wit. Door de spiegels lijkt het een sterrenhemel.',
+      fn: (l, t) => {
+        const f = 0.6 + hash(l.i) * 1.6, ph = hash(l.i + 50) * 6.283;
+        const s = Math.pow(Math.max(0, Math.sin(t * f + ph)), 16);
+        return mul(WHITE, 0.05 + s);
+      },
+    },
+    fire: {
+      name: 'Haardvuur',
+      desc: 'Onrustig flakkerend oranje-rood, onderin het felst. Warm en gezellig voor pakjesavond.',
+      fn: (l, t) => {
+        const a = hash(l.i), b = hash(l.i + 9);
+        const n = 0.5 + 0.25 * Math.sin(t * (7 + a * 5) + a * 20) + 0.25 * Math.sin(t * (13 + b * 7) + b * 30);
+        const height = 1 - (l.p[1] + 10) / 20;          // 1 at the bottom, 0 at the top
+        const k = Math.max(0, n * (0.35 + 0.65 * height));
+        return mul(mix([1, 0.12, 0.02], [1, 0.62, 0.12], n), 0.1 + k);
+      },
+    },
+    rain: {
+      name: 'Vallende sterren',
+      desc: 'Lichtdruppels met een staart vallen van boven naar beneden, elk in een eigen kolom en tempo.',
+      fn: (l, t) => {
+        const col = Math.round(l.p[0]) * 31 + Math.round(l.p[2]);
+        const speed = 8 + hash(col) * 8;
+        const y = 12 - (((t * speed + hash(col + 3) * 40) % 40) + 40) % 40;   // drop height
+        const dy = l.p[1] - y;
+        const k = dy >= 0 ? Math.exp(-dy / 2.5) : Math.exp(-(dy * dy) / 0.8);  // tail above the drop
+        return mul(ICE, 0.02 + k);
+      },
+    },
+    sint: {
+      name: 'Sint & Piet (rood / goud wissel)',
+      desc: 'Rood en goud wisselen elkaar zacht af, met af en toe een witte schittering.',
+      fn: (l, t) => {
+        const k = 0.5 + 0.5 * Math.sin(t * 1.5);
+        const c = l.i % 2 ? mix(RED, GOLD, k) : mix(GOLD, RED, k);
+        const slot = Math.floor(t * 5);
+        const sparkle = hash(l.i * 13 + slot) > 0.94 ? 1 - (t * 5 - slot) : 0;
+        return mix(c, WHITE, sparkle);
+      },
+    },
+    rgbCube: {
+      name: 'Kleurkubus (kleur = plek)',
+      desc: 'Rood = links/rechts, groen = onder/boven, blauw = voor/achter; de hele kubus draait langzaam door de kleurruimte.',
+      fn: (l, t) => {
+        const a = t * 0.5, x = l.p[0] * Math.cos(a) - l.p[2] * Math.sin(a), z = l.p[0] * Math.sin(a) + l.p[2] * Math.cos(a);
+        return [(x + 10) / 20, (l.p[1] + 10) / 20, (z + 10) / 20];
+      },
+    },
+    fireworks: {
+      name: 'Vuurwerk',
+      desc: 'Op een willekeurige LED ontploft een kleur die als een schokgolf over de kubus uitdooft.',
+      fn: (l, t, all) => {
+        const period = 0.7;
+        let c = [0, 0, 0];
+        const now = Math.floor(t / period);
+        for (let j = now - 3; j <= now; j++) {
+          const age = t - j * period;
+          if (age < 0) continue;
+          const src = all[Math.floor(hash(j) * all.length)].p;
+          const dist = Math.hypot(l.p[0] - src[0], l.p[1] - src[1], l.p[2] - src[2]);
+          const ring = dist - age * 22;
+          const k = Math.exp(-(ring * ring) / 10) * Math.exp(-age * 1.4);
+          c = c.map((v, n) => v + hue(hash(j + 7) * 360)[n] * k);
+        }
+        return c.map((v) => Math.min(1, v));
+      },
+    },
+  };
+
+  function applyEffect(lights, t) {
+    const fx = EFFECTS[$('effect').value] || EFFECTS.static;
+    lights.forEach((l) => { l.c = fx.fn(l, t, lights).map((v) => Math.max(0, v)); });
   }
 
   // ---------- WebGL ----------
@@ -359,7 +504,10 @@
   const requestRender = () => { dirty = true; };
 
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // While an effect animates, render at a lower resolution so it stays smooth;
+    // the glow hides the upscaling. A paused/static view renders sharp again.
+    const full = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = animating() ? Math.min(full, 0.6) : full;
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
     const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
     if (canvas.width !== w || canvas.height !== h) {
@@ -391,6 +539,7 @@
     gl.uniform1f(U.uAmb, s.amb);
 
     const lights = buildLights(s);
+    applyEffect(lights, fxTime);
     const active = lights.filter((l) => l.on).slice(0, MAX_LIGHTS);
     lightData.fill(0);
     active.forEach((l, i) => {
@@ -401,7 +550,7 @@
     gl.bindTexture(gl.TEXTURE_2D, lightTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, MAX_LIGHTS, 2, 0, gl.RGBA, gl.FLOAT, lightData);
     gl.uniform1i(U.uCount, active.length);
-    gl.uniform1i(U.uAA, lowQuality ? 1 : 2);
+    gl.uniform1i(U.uAA, lowQuality || animating() ? 1 : 2);
 
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     drawOverview(s, fwd, lights);
@@ -434,8 +583,18 @@
     ctx.fillText('hoek', W - 24, 10);
   }
 
-  function loop() {
+  // Effect time advances with the speed slider (changing speed never makes the effect jump).
+  let fxTime = 0, lastFrame = performance.now();
+  const animating = () => $('effect').value !== 'static' && parseFloat(ui.speed.value) > 0;
+
+  function loop(now = performance.now()) {
+    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    lastFrame = now;
     resize();
+    if (animating()) {
+      fxTime += dt * parseFloat(ui.speed.value);
+      dirty = true;
+    }
     if (dirty) { dirty = false; render(); }
     requestAnimationFrame(loop);
   }
@@ -476,11 +635,16 @@
     lights.map((l) => ({ l, q: proj(l.p) }))
       .sort((a, b) => a.q[2] - b.q[2])
       .forEach(({ l, q }) => {
-        const c = l.c.map((v) => Math.round(v * 255));
-        octx.fillStyle = l.on ? `rgb(${c})` : '#333';
+        // live colour * intensity of this LED (dark = dimmed by the effect)
+        const c = l.c.map((v) => Math.round(Math.min(1, v) * 255));
+        octx.fillStyle = l.on ? `rgb(${c})` : '#222';
         octx.shadowColor = l.on ? `rgb(${c})` : 'transparent';
         octx.shadowBlur = l.on ? 8 : 0;
         octx.beginPath(); octx.arc(q[0], q[1], r, 0, Math.PI * 2); octx.fill();
+        octx.shadowBlur = 0;
+        octx.strokeStyle = 'rgba(255,255,255,.18)';
+        octx.lineWidth = 0.8;
+        octx.stroke();
       });
     octx.shadowBlur = 0;
     // peephole + view direction
@@ -514,6 +678,13 @@
     $('levels').innerHTML = rows.join('');
     $('customWrap').hidden = $('colorMode').value !== 'custom';
     $('faceList').hidden = !$('faces').checked;
+    $('effectDesc').textContent = (EFFECTS[$('effect').value] || EFFECTS.static).desc;
+  }
+
+  function buildEffectList() {
+    const sel = $('effect');
+    Object.entries(EFFECTS).forEach(([key, fx]) => sel.add(new Option(fx.name, key)));
+    sel.value = 'static';
   }
 
   function buildFaceList() {
@@ -590,6 +761,7 @@
   });
   window.addEventListener('resize', requestRender);
 
+  buildEffectList();
   buildEdgeList();
   buildFaceList();
   updateLabels();
