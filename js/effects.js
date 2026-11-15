@@ -21,9 +21,11 @@ const cap = (c) => c.map((v) => Math.min(1, v));
 const frac = (x) => x - Math.floor(x);
 const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const smooth = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
 const RED = [1, 0.06, 0.05], GOLD = [1, 0.7, 0.12], WHITE = [1, 0.92, 0.8], ICE = [0.6, 0.8, 1];
-const VIOLET = [0.55, 0.3, 1];
+const VIOLET = [0.55, 0.3, 1], CYAN = [0.1, 0.85, 1], CORAL = [1, 0.35, 0.28], ORANGE = [1, 0.42, 0.05];
+const MAGENTA = [1, 0.1, 0.65], TEAL = [0.05, 0.9, 0.75], AURORA_GREEN = [0.15, 1, 0.35];
 
 /** Depth of a light along your line of sight: 0 = far mirror, 20 = at the peephole. */
 const depth = (l) => l.v[2] + 10;
@@ -73,8 +75,8 @@ function ledGraph(all) {
 
 // Showreel: [effect, seconds]; each effect starts at its own time 0, with a soft crossfade.
 const SHOW = [
-  ['warp', 8], ['vortex', 10], ['beatDrop', 15], ['lightning', 8.4],
-  ['tunnelRush', 10], ['candyCane', 10], ['supernova', 9], ['kaleidoscope', 10], ['twinkle', 8],
+  ['warp', 8], ['dnaHelix', 10], ['beatDrop', 15], ['orbits', 10], ['lightning', 8.4], ['aurora', 12],
+  ['tunnelRush', 9], ['bouncingBall', 12], ['supernova', 9], ['vortex', 10], ['meteors', 10], ['kaleidoscope', 10],
 ];
 const SHOW_FADE = 1.5;
 const SHOW_TOTAL = SHOW.reduce((s, [, d]) => s + d, 0);
@@ -82,7 +84,8 @@ const SHOW_TOTAL = SHOW.reduce((s, [, d]) => s + d, 0);
 const EFFECT_DEFS = {
   showreel: {
     name: '★ Show (alle hoogtepunten achter elkaar)',
-    desc: 'Warpsprong → draaikolk → beat drop → bliksem → tunnel → zuurstok → supernova → caleidoscoop → sterren. '
+    desc: 'Warpsprong → dubbele helix → beat drop → planeten → bliksem → noorderlicht → tunnel → stuiterbal → '
+      + 'supernova → draaikolk → meteoren → caleidoscoop. '
       + 'Elk effect begint vooraan en vloeit zacht over in het volgende.',
     fn: (l, t, all) => {
       let local = ((t % SHOW_TOTAL) + SHOW_TOTAL) % SHOW_TOTAL, i = 0;
@@ -123,22 +126,6 @@ const EFFECT_DEFS = {
       return mul(hue(Math.round(pos) * 47), 0.02 + k);
     },
   },
-  rainbowRise: {
-    name: '🌈 Regenboogschacht',
-    desc: 'Kleurbanden schuiven langzaam vanuit de diepte naar je toe: een eindeloze schacht vol kleur.',
-    fn: (l, t) => hue(depth(l) * 14 - t * 80),
-  },
-  rain: {
-    name: '☄ Vallende sterren in de diepte',
-    desc: 'Lichtdruppels met een staart vallen van jou weg de diepte in, elk in een eigen tempo.',
-    fn: (l, t) => {
-      const speed = 8 + hash(l.i) * 8;
-      const y = 22 - (((t * speed + hash(l.i + 3) * 40) % 40) + 40) % 40;   // drop depth
-      const dy = depth(l) - y;
-      const k = dy >= 0 ? Math.exp(-dy / 2.5) : Math.exp(-(dy * dy) / 0.8);   // tail behind the drop
-      return mul(ICE, 0.02 + k);
-    },
-  },
 
   // ---------------- around your line of sight: the tunnel spins ----------------
   vortex: {
@@ -158,14 +145,6 @@ const EFFECT_DEFS = {
     fn: (l, t) => {
       const f = Math.sin(2 * spin(l) + depth(l) * 0.35 - t * 2.2);
       return mix(mul(WHITE, 0.75), RED, smooth(-0.35, 0.35, f));
-    },
-  },
-  lighthouse: {
-    name: '🔦 Zoeklicht',
-    desc: 'Een smalle bundel draait om je kijkrichting en veegt als een radar door de hele spiegelwereld.',
-    fn: (l, t) => {
-      const d = wrapPi(spin(l) - t * 1.8);
-      return mul(mix(GOLD, WHITE, 0.4), 0.02 + Math.exp(-(d * d) / 0.12));
     },
   },
   kaleidoscope: {
@@ -254,6 +233,113 @@ const EFFECT_DEFS = {
     },
   },
 
+  // ---------------- objects that fly through the space ----------------
+  dnaHelix: {
+    name: '🧬 Dubbele helix',
+    desc: 'Twee strengen, cyaan en koraal, draaien om je kijkrichting en schroeven zich naar je toe, '
+      + 'met witte sporten ertussen. In de spiegels een eindeloze DNA-tunnel.',
+    fn: (l, t) => {
+      const z = depth(l) - t * 6;                                  // pattern moves towards you
+      const a = z * 0.4 - t * 0.8;                                  // strand angle at this depth
+      const dA = wrapPi(spin(l) - a), dB = wrapPi(spin(l) - a - Math.PI);
+      const kA = Math.exp(-(dA * dA) / 0.18), kB = Math.exp(-(dB * dB) / 0.18);
+      const rung = 0.6 * Math.pow(Math.max(0, Math.cos((Math.PI * z) / 2.5)), 24);
+      return cap(add(add(mul(CYAN, kA), mul(CORAL, kB)), mul(WHITE, rung + 0.015)));
+    },
+  },
+  orbits: {
+    name: '🪐 Planetenbanen',
+    desc: 'Drie gloeiende planeten (oranje, cyaan, magenta) cirkelen op verschillende diepte en snelheid '
+      + 'om je kijkrichting, elk met een komeetstaart. De spiegels vullen de ruimte met hele zonnestelsels.',
+    fn: (l, t) => {
+      let c = [0.01, 0.01, 0.02];
+      [[ORANGE, 1.6, 4, 0], [CYAN, -1.1, 10, 2.1], [MAGENTA, 2.3, 16, 4.2]].forEach(([col, w, d0, ph]) => {
+        const ang = t * w + ph;
+        const dz = depth(l) - (d0 + 3 * Math.sin(t * 0.5 + ph));     // planet bobs in depth
+        const da = wrapPi(spin(l) - ang) * Math.sign(w);              // > 0: ahead of the planet
+        const k = (da <= 0 ? Math.exp(da * 2.2) : Math.exp(-(da * da) / 0.03)) * Math.exp(-(dz * dz) / 14);
+        c = add(c, mul(col, k));
+      });
+      return cap(c);
+    },
+  },
+  bouncingBall: {
+    name: '🏓 Stuiterbal',
+    desc: 'Een lichtbal stuitert met een staart door de kubus tegen de spiegels; bij elke botsing een nieuwe kleur. '
+      + 'Je ziet een heel leger ballen in perfecte formatie stuiteren.',
+    fn: (l, t) => {
+      const tri = (u) => 1 - 2 * Math.abs(frac(u) - 0.5);           // 0..1..0, bounces at the ends
+      const at = (s) => [-9 + 18 * tri(s * 0.29 + 0.1), -9 + 18 * tri(s * 0.37 + 0.4), -9 + 18 * tri(s * 0.21 + 0.7)];
+      const bounces = Math.floor(2 * (t * 0.29 + 0.1)) + Math.floor(2 * (t * 0.37 + 0.4)) + Math.floor(2 * (t * 0.21 + 0.7));
+      const col = hue(bounces * 67 + 80);
+      let k = 0;
+      for (let j = 0; j < 10; j++) {                                // trail: where the ball was
+        const r = dist(l.p, at(t - j * 0.08));
+        k = Math.max(k, Math.exp(-(r * r) / 40) * Math.exp(-j * 0.3));
+      }
+      return mul(col, 0.02 + k);
+    },
+  },
+  meteors: {
+    name: '🌠 Meteorenregen',
+    desc: 'Meteoren met een gouden kop en een blauwe staart schieten kriskras door de kubus, '
+      + 'elk in een andere richting. De spiegels maken er een meteorenregen zonder einde van.',
+    fn: (l, t) => {
+      const period = 0.4, now = Math.floor(t / period);
+      let c = [0.005, 0.007, 0.02];
+      for (let j = now - 4; j <= now; j++) {
+        const age = t - j * period;
+        if (age < 0) continue;
+        // random line through the cube: start outside, aim near the centre
+        const th = hash(j * 1.3) * 2 * Math.PI, ph = Math.acos(2 * hash(j * 2.7) - 1);
+        const start = [14 * Math.sin(ph) * Math.cos(th), 14 * Math.cos(ph), 14 * Math.sin(ph) * Math.sin(th)];
+        const aim = [6 * hash(j + 0.1) - 3, 6 * hash(j + 0.2) - 3, 6 * hash(j + 0.3) - 3];
+        const len = dist(aim, start), dir = [0, 1, 2].map((i) => (aim[i] - start[i]) / len);
+        const rel = [0, 1, 2].map((i) => l.p[i] - start[i]);
+        const s = dot(rel, dir), head = age * 32;
+        const r2 = dot(rel, rel) - s * s;
+        const behind = head - s;                                     // > 0: in the tail
+        if (behind < -2 || behind > 18) continue;
+        const along = behind >= 0 ? Math.exp(-behind / 5) : Math.exp(-(behind * behind) / 0.8);
+        const k = along * Math.exp(-r2 / 22);
+        c = add(c, mul(mix(GOLD, ICE, Math.min(1, Math.max(0, behind) / 6)), k));
+      }
+      return cap(c);
+    },
+  },
+
+  // ---------------- flowing colour ----------------
+  aurora: {
+    name: '🌌 Noorderlicht',
+    desc: 'Golvende gordijnen van groen, turquoise en violet licht bewegen langzaam om je heen en de diepte in, '
+      + 'als het noorderlicht in een eindeloze zaal.',
+    fn: (l, t) => {
+      const a = spin(l), z = depth(l);
+      const curtain = 0.5 + 0.5 * Math.sin(3 * a + 2 * Math.sin(t * 1.1 + z * 0.3) - t * 1.4);
+      const ripple = 0.5 + 0.5 * Math.sin(z * 0.5 + t * 2 + a * 2);
+      const k = Math.pow(curtain, 3) * (0.35 + 0.65 * ripple);
+      const tint = 0.5 + 0.5 * Math.sin(z * 0.25 + t * 0.35 + a);
+      return mul(tint < 0.5 ? mix(AURORA_GREEN, TEAL, tint * 2) : mix(TEAL, VIOLET, tint * 2 - 1), 0.02 + k);
+    },
+  },
+  lavaLamp: {
+    name: '🫧 Lavalamp',
+    desc: 'Grote zachte blobs in magenta en oranje zweven langzaam op en neer door de kubus en smelten samen. '
+      + 'Rustig, maar de hele spiegelruimte beweegt mee.',
+    fn: (l, t) => {
+      let field = 0;
+      for (let k = 0; k < 4; k++) {
+        const c = [6 * Math.sin(t * (0.21 + 0.06 * k) + k * 1.7), 9 * Math.sin(t * (0.34 + 0.08 * k) + k * 2.3),
+          6 * Math.cos(t * (0.18 + 0.05 * k) + k)];
+        const r = dist(l.p, c);
+        field += 30 / (r * r + 4);
+      }
+      const k = smooth(0.8, 2.2, field);
+      const h = (l.p[1] + 10) / 20;                                    // warmer at the bottom
+      return mix([0.05, 0.0, 0.08], mix(ORANGE, MAGENTA, h), k);
+    },
+  },
+
   // ---------------- along the strip ----------------
   helixComets: {
     name: '☄ Kometen langs de strip',
@@ -268,16 +354,6 @@ const EFFECT_DEFS = {
       return cap(c);
     },
   },
-  fill: {
-    name: '▮ Vullen en leeglopen',
-    desc: 'De strip vult zich LED voor LED in regenboogkleuren en loopt daarna weer leeg.',
-    fn: (l, t, all) => {
-      const n = all.length;
-      const c = (t * 10) % (2 * n);
-      const k = c < n ? Math.min(1, Math.max(0, c - l.i)) : 1 - Math.min(1, Math.max(0, c - n - l.i));
-      return mul(hue((l.i * 300) / n), 0.02 + k);
-    },
-  },
 
   // ---------------- calm ----------------
   twinkle: {
@@ -287,43 +363,6 @@ const EFFECT_DEFS = {
       const f = 0.6 + hash(l.i) * 1.6, ph = hash(l.i + 50) * 6.283;
       return mul(WHITE, 0.05 + Math.pow(Math.max(0, Math.sin(t * f + ph)), 16));
     },
-  },
-  heartbeat: {
-    name: '❤ Hartslag',
-    desc: 'Een dubbele rode klop die van het midden van de kubus naar buiten golft.',
-    fn: (l, t) => {
-      const r = Math.hypot(l.p[0], l.p[1], l.p[2]);
-      const ph = ((t - r * 0.035) % 1.3 + 1.3) % 1.3;
-      const beat = Math.exp(-Math.pow((ph - 0.1) / 0.06, 2)) + 0.6 * Math.exp(-Math.pow((ph - 0.32) / 0.06, 2));
-      return mul(RED, 0.04 + beat);
-    },
-  },
-  fire: {
-    name: '🔥 Haardvuur',
-    desc: 'Onrustig flakkerend oranje-rood, onderin het felst. Warm en gezellig voor pakjesavond.',
-    fn: (l, t) => {
-      const a = hash(l.i), b = hash(l.i + 9);
-      const n = 0.5 + 0.25 * Math.sin(t * (7 + a * 5) + a * 20) + 0.25 * Math.sin(t * (13 + b * 7) + b * 30);
-      const height = 1 - (l.p[1] + 10) / 20;          // 1 at the bottom, 0 at the top
-      const k = Math.max(0, n * (0.35 + 0.65 * height));
-      return mul(mix([1, 0.12, 0.02], [1, 0.62, 0.12], n), 0.1 + k);
-    },
-  },
-  sint: {
-    name: '🎁 Sint & Piet (rood / goud)',
-    desc: 'Rood en goud wisselen elkaar zacht af, met af en toe een witte schittering.',
-    fn: (l, t) => {
-      const k = 0.5 + 0.5 * Math.sin(t * 1.5);
-      const c = l.i % 2 ? mix(RED, GOLD, k) : mix(GOLD, RED, k);
-      const slot = Math.floor(t * 5);
-      const sparkle = hash(l.i * 13 + slot) > 0.94 ? 1 - (t * 5 - slot) : 0;
-      return mix(c, WHITE, sparkle);
-    },
-  },
-  breathe: {
-    name: 'Ademen',
-    desc: 'Alle LEDs zwellen langzaam samen aan en uit in de basiskleur. De hele tunnel ademt mee.',
-    fn: (l, t) => mul(l.base, 0.08 + 0.92 * Math.pow(0.5 - 0.5 * Math.cos(t * 1.4), 2)),
   },
   static: {
     name: 'Vast (basiskleur)',
