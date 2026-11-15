@@ -26,6 +26,7 @@ const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
 const RED = [1, 0.06, 0.05], GOLD = [1, 0.7, 0.12], WHITE = [1, 0.92, 0.8], ICE = [0.6, 0.8, 1];
 const VIOLET = [0.55, 0.3, 1], CYAN = [0.1, 0.85, 1], CORAL = [1, 0.35, 0.28], ORANGE = [1, 0.42, 0.05];
 const MAGENTA = [1, 0.1, 0.65], TEAL = [0.05, 0.9, 0.75], AURORA_GREEN = [0.15, 1, 0.35];
+const DEEP_BLUE = [0.02, 0.12, 0.6], FOAM = [0.85, 0.95, 1], FIREFLY = [0.7, 1, 0.15];
 
 /** Depth of a light along your line of sight: 0 = far mirror, 20 = at the peephole. */
 const depth = (l) => l.v[2] + 10;
@@ -75,8 +76,9 @@ function ledGraph(all) {
 
 // Showreel: [effect, seconds]; each effect starts at its own time 0, with a soft crossfade.
 const SHOW = [
-  ['warp', 8], ['dnaHelix', 10], ['beatDrop', 15], ['orbits', 10], ['lightning', 8.4], ['aurora', 12],
-  ['tunnelRush', 9], ['bouncingBall', 12], ['supernova', 9], ['vortex', 10], ['meteors', 10], ['kaleidoscope', 10],
+  ['warp', 8], ['dnaHelix', 10], ['beatDrop', 15], ['sea', 12], ['orbits', 10], ['lightning', 8.4], ['aurora', 12],
+  ['tunnelRush', 9], ['swarm', 12], ['supernova', 9], ['vortex', 10], ['bouncingBall', 12], ['meteors', 10],
+  ['kaleidoscope', 10],
 ];
 const SHOW_FADE = 1.5;
 const SHOW_TOTAL = SHOW.reduce((s, [, d]) => s + d, 0);
@@ -84,8 +86,8 @@ const SHOW_TOTAL = SHOW.reduce((s, [, d]) => s + d, 0);
 const EFFECT_DEFS = {
   showreel: {
     name: '★ Show (alle hoogtepunten achter elkaar)',
-    desc: 'Warpsprong → dubbele helix → beat drop → planeten → bliksem → noorderlicht → tunnel → stuiterbal → '
-      + 'supernova → draaikolk → meteoren → caleidoscoop. '
+    desc: 'Warpsprong → dubbele helix → beat drop → klotsende zee → planeten → bliksem → noorderlicht → tunnel → '
+      + 'zwerm → supernova → draaikolk → stuiterbal → meteoren → caleidoscoop. '
       + 'Elk effect begint vooraan en vloeit zacht over in het volgende.',
     fn: (l, t, all) => {
       let local = ((t % SHOW_TOTAL) + SHOW_TOTAL) % SHOW_TOTAL, i = 0;
@@ -337,6 +339,56 @@ const EFFECT_DEFS = {
       const k = smooth(0.8, 2.2, field);
       const h = (l.p[1] + 10) / 20;                                    // warmer at the bottom
       return mix([0.05, 0.0, 0.08], mix(ORANGE, MAGENTA, h), k);
+    },
+  },
+
+  // ---------------- living things ----------------
+  sea: {
+    name: '🌊 Klotsende zee',
+    desc: 'Een zee klotst heen en weer door de kubus: diepblauw onderin, turquoise met lichtschittering vlak onder '
+      + 'het oppervlak en een witte schuimrand op de golven. In de spiegels rolt een eindeloze oceaan.',
+    fn: (l, t) => {
+      const [x, y, z] = l.p;                                       // gravity: world y is up
+      const level = -1.5 + 2.5 * Math.sin(t * 0.23);               // the tide rises and falls slowly
+      const tilt = 0.45 * Math.sin(t * 1.05) * x + 0.35 * Math.sin(t * 0.8 + 1) * z;   // sloshing
+      const waves = 0.9 * Math.sin(0.6 * x + 0.4 * z - 2.1 * t) + 0.5 * Math.sin(-0.5 * x + 0.7 * z - 1.5 * t);
+      const d = y - (level + tilt + waves);                        // < 0: under water
+      const foam = Math.exp(-(d * d) / 0.9);
+      if (d > 0) return add(mul(FOAM, foam), [0.004, 0.012, 0.03]);  // above: dark, foam at the edge
+      const deep = Math.min(1, -d / 12);                           // 0 at the surface, 1 deep down
+      const caustic = 0.25 * Math.pow(0.5 + 0.5 * Math.sin(1.3 * x - 0.9 * z + 3 * t + Math.sin(2.3 * t + y)), 3);
+      const water = mix(TEAL, DEEP_BLUE, deep);
+      return cap(add(mul(water, 0.18 + 0.55 * (1 - deep) + caustic * (1 - deep)), mul(FOAM, foam)));
+    },
+  },
+  swarm: {
+    name: '✨ Zwerm vuurvliegjes',
+    desc: 'Zeven vuurvliegjes vliegen als een zwerm door de kubus: ze volgen een leider, slingeren om elkaar heen '
+      + 'en knipperen elk in hun eigen ritme. Af en toe schrikt de zwerm uiteen en komt weer samen. '
+      + 'De spiegels maken er een reusachtige zwerm van.',
+    fn: (l, t) => {
+      // leader: a smooth path that stays inside the cube
+      const lead = (s) => [
+        8 * Math.tanh(1.3 * Math.sin(s * 0.37) + 0.5 * Math.sin(s * 0.91 + 1)),
+        8 * Math.tanh(1.3 * Math.sin(s * 0.29 + 2) + 0.5 * Math.sin(s * 0.77)),
+        8 * Math.tanh(1.3 * Math.sin(s * 0.33 + 4) + 0.5 * Math.sin(s * 0.83 + 3)),
+      ];
+      const scatter = Math.pow(Math.max(0, Math.sin((t * 2 * Math.PI) / 13)), 6);   // every 13 s
+      let c = [0.004, 0.006, 0.004];
+      for (let k = 0; k < 7; k++) {
+        const s = 1.8 * t - k * 0.45;                              // followers fly where the leader was
+        const base = lead(s);
+        const spread = 1.6 + 7 * scatter;
+        const p = [
+          base[0] + spread * Math.sin(s * (1.7 + 0.3 * k) + k * 2.1),
+          base[1] + spread * Math.sin(s * (1.3 + 0.25 * k) + k * 1.3),
+          base[2] + spread * Math.cos(s * (1.5 + 0.2 * k) + k * 0.7),
+        ].map((v) => Math.max(-9, Math.min(9, v)));
+        const blink = 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.sin(t * (2.2 + hash(k) * 2) + k * 4), 4);
+        const r = dist(l.p, p);
+        c = add(c, mul(mix(FIREFLY, GOLD, hash(k + 5)), Math.exp(-(r * r) / 16) * blink));
+      }
+      return cap(c);
     },
   },
 
