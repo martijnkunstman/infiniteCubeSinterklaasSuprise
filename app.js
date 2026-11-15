@@ -70,10 +70,50 @@
   }
 
   // All LEDs (also switched-off ones, for the overview) with stable colour indices.
+  // Fixed layout: the three faces that meet in the back-left-bottom corner get a light in
+  // every corner and one in the middle (like a dice "5"); the other three faces (front,
+  // right, top) get 4 lights in a 2 x 2 grid, spaced around (like a dice "4").
+  const FIVE_FACES = [{ axis: 2, sign: -1 }, { axis: 0, sign: -1 }, { axis: 1, sign: -1 }];
+  const FOUR_FACES = [{ axis: 2, sign: 1 }, { axis: 0, sign: 1 }, { axis: 1, sign: 1 }];
+
+  function buildFixedLights(d) {
+    const lights = [];
+    const onFiveFace = (c) => FIVE_FACES.some((f) => c[f.axis] === f.sign);
+    // corners of the "5" faces = every cube corner except front-right-top
+    for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) {
+      if (onFiveFace([x, y, z])) lights.push({ p: [x * d, y * d, z * d], on: true });
+    }
+    FIVE_FACES.forEach((f) => {
+      const p = [0, 0, 0];
+      p[f.axis] = f.sign * d;
+      lights.push({ p, on: true });
+    });
+    const grid = spacingPositions(2, 'around', 0);   // -5 and +5 cm
+    FOUR_FACES.forEach((f) => {
+      const [a, b] = [0, 1, 2].filter((k) => k !== f.axis);
+      grid.forEach((u) => grid.forEach((v) => {
+        const p = [0, 0, 0];
+        p[f.axis] = f.sign * d; p[a] = u; p[b] = v;
+        lights.push({ p, on: true });
+      }));
+    });
+    return lights;
+  }
+
   function buildLights(s) {
+    const d = H - s.inset;
+    const lights = s.layout === 'fixed' ? buildFixedLights(d) : buildFreeLights(s, d);
+    lights.forEach((l, i) => {
+      l.i = i;
+      l.base = lightColor(i, lights.length);   // colour from the "Basiskleur" setting
+      l.c = l.base;                            // colour * intensity actually sent to the LED
+    });
+    return lights;
+  }
+
+  function buildFreeLights(s, d) {
     const lights = [];
     const ts = spacingPositions(s.perEdge, s.spacing, s.inset);
-    const d = H - s.inset;
     EDGES.forEach((e) => {
       const along = ['x', 'y', 'z'].findIndex((k) => e.dir[k] === 0);
       ts.forEach((t) => {
@@ -89,11 +129,6 @@
         lights.push({ p, on: f.on });
       });
     }
-    lights.forEach((l, i) => {
-      l.i = i;
-      l.base = lightColor(i, lights.length);   // colour from the "Basiskleur" setting
-      l.c = l.base;                            // colour * intensity actually sent to the LED
-    });
     return lights;
   }
 
@@ -105,7 +140,7 @@
 
   const ui = {};
   ['bounces', 'atten', 'bright', 'glow', 'led', 'inset', 'perEdge', 'holeX', 'holeY', 'holeD',
-    'eye', 'fov', 'seam', 'amb', 'speed'].forEach((id) => { ui[id] = $(id); });
+    'eye', 'fov', 'seam', 'amb', 'speed', 'frontDim'].forEach((id) => { ui[id] = $(id); });
 
   const fmt = {
     bounces: (v) => `${v}`,
@@ -123,6 +158,7 @@
     seam: (v) => `${(v * 10).toFixed(1)} mm`,
     amb: (v) => (+v).toFixed(3),
     speed: (v) => (+v === 0 ? 'pauze' : `${(+v).toFixed(2)}×`),
+    frontDim: (v) => `${v}%`,
   };
 
   // ---------- Camera ----------
@@ -174,11 +210,92 @@
   const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   const RED = [1, 0.06, 0.05], GOLD = [1, 0.7, 0.12], WHITE = [1, 0.92, 0.8], ICE = [0.6, 0.8, 1];
 
+  // --- helpers for motion effects ---
+  // Running light: `pos` is the LED's place on a closed path of `n` steps, `head` the moving
+  // head. The LED fades in just before the head arrives and leaves a fading tail, so the eye
+  // sees smooth movement instead of blinking (phi phenomenon).
+  function chase(pos, head, n, fadeIn = 0.6, tail = 1.1) {
+    let a = (((head - pos) % n) + n) % n;
+    if (a > n - fadeIn) a -= n;
+    return a < 0 ? Math.pow(1 + a / fadeIn, 2) : Math.exp(-a * tail);
+  }
+  const absP = (p) => p.map(Math.abs);
+  const faceDist = (p) => Math.max(...absP(p));
+  // A corner LED: all three coordinates near the walls.
+  const isCorner = (p) => Math.min(...absP(p)) > 0.85 * faceDist(p);
+  // The face an LED sits on (axis with the largest coordinate) + its 2D position on that face.
+  function onFace(p) {
+    const a = absP(p);
+    const axis = a[0] >= a[1] && a[0] >= a[2] ? 0 : a[1] >= a[2] ? 1 : 2;
+    const sign = Math.sign(p[axis]);
+    const u = p[(axis + 1) % 3], v = p[(axis + 2) % 3];
+    return { axis, sign, u, v, r: Math.hypot(u, v) / (Math.SQRT2 * faceDist(p)) };
+  }
+  // Axis of the main diagonal (back-left-bottom -> front-right-top) and a basis around it.
+  const DIAG_E1 = [1 / Math.SQRT2, -1 / Math.SQRT2, 0];
+  const DIAG_E2 = [1 / Math.sqrt(6), 1 / Math.sqrt(6), -2 / Math.sqrt(6)];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const DIM = 0.03;
+
   const EFFECTS = {
     static: {
       name: 'Vast (basiskleur)',
       desc: 'Alle LEDs branden constant in de basiskleur.',
       fn: (l) => l.base,
+    },
+    hexRing: {
+      name: '↻ Zeshoek-ring (looplicht om de diagonaal)',
+      desc: 'Een looplicht met staart rondt de 6 hoeklampjes die als gesloten ring langs de ribben liggen. '
+        + 'De beweging draait om de diagonaal van de kubus; de spiegels maken er een groot draaiend patroon van.',
+      fn: (l, t) => {
+        const p = l.p;
+        const sameSign = Math.sign(p[0]) === Math.sign(p[1]) && Math.sign(p[1]) === Math.sign(p[2]);
+        if (!isCorner(p) || sameSign) return mul(l.base, DIM);
+        const ang = Math.atan2(dot(p, DIAG_E2), dot(p, DIAG_E1));        // 6 corners = 60° apart
+        const pos = ((ang / (Math.PI / 3)) % 6 + 6) % 6;
+        const k = chase(pos, t * 2.2, 6);
+        return mix(mul(l.base, DIM), hue(t * 25 + 40, 0.55), k);
+      },
+    },
+    rotors: {
+      name: '↻ Drie rotors (2 × 2 vlakken)',
+      desc: 'Op voor, rechts en boven draaien de 4 lampjes rond, elk vlak in zijn eigen kleur. '
+        + 'In de spiegels draait elke buurkubus andersom: een veld van tandwielen. Werkt met de vaste indeling.',
+      fn: (l, t) => {
+        if (isCorner(l.p)) return mul(l.base, DIM);
+        const f = onFace(l.p);
+        if (f.r < 0.15 || Math.abs(f.u) > 0.8 * faceDist(l.p) || Math.abs(f.v) > 0.8 * faceDist(l.p)) {
+          return mul(l.base, DIM);                                       // centre or edge LED
+        }
+        const ang = f.sign * Math.atan2(f.v, f.u);                       // same turning sense seen from outside
+        const pos = ((ang / (Math.PI / 2)) % 4 + 4) % 4;
+        const k = chase(pos, t * 2.5, 4, 0.5, 1.6);
+        return mul([RED, GOLD, ICE][f.axis], DIM + k);
+      },
+    },
+    burst: {
+      name: '✳ Explosie / implosie',
+      desc: 'Licht schiet op elk vlak van het midden naar de hoeken en trekt weer terug: midden → 2 × 2 → hoeken. '
+        + 'De hele spiegelwereld ademt als een ster.',
+      fn: (l, t) => {
+        const r = isCorner(l.p) ? 1 : onFace(l.p).r;
+        const front = 0.5 - 0.5 * Math.cos(t * 1.6);                     // 0 = centre, 1 = corners
+        const k = Math.exp(-Math.pow((r - front) / 0.22, 2));
+        return mul(mix(GOLD, RED, r), DIM + k);
+      },
+    },
+    diagonal: {
+      name: '➚ Diagonaal-golf',
+      desc: 'Een golf met staart reist van de hoek achter-links-onder naar voor-rechts-boven; elke golf een nieuwe kleur. '
+        + 'Zo lopen de lampjes in een vaste volgorde schuin door het hele raster.',
+      fn: (l, t) => {
+        const s = (l.p[0] + l.p[1] + l.p[2]) / (3 * faceDist(l.p));     // -1 .. 1 along the diagonal
+        const cycle = t * 0.55;
+        const front = -1.4 + (cycle % 1) * 2.8;
+        const a = front - s;
+        const k = a >= 0 ? Math.exp(-a * 3) : Math.exp(-Math.pow(a / 0.15, 2));
+        return mul(hue(Math.floor(cycle) * 75), DIM + k);
+      },
     },
     breathe: {
       name: 'Ademen',
@@ -300,7 +417,12 @@
 
   function applyEffect(lights, t) {
     const fx = EFFECTS[$('effect').value] || EFFECTS.static;
-    lights.forEach((l) => { l.c = fx.fn(l, t, lights).map((v) => Math.max(0, v)); });
+    // LEDs on the front face sit right next to your eye and look huge; this dims them.
+    const front = parseFloat($('frontDim').value) / 100;
+    lights.forEach((l) => {
+      const k = l.p[2] > 0.85 * faceDist(l.p) ? front : 1;
+      l.c = fx.fn(l, t, lights).map((v) => Math.max(0, v) * k);
+    });
   }
 
   // ---------- WebGL ----------
@@ -488,6 +610,7 @@
       inset: v('inset'),
       perEdge: Math.min(MAX_PER_EDGE, v('perEdge')),
       spacing: $('spacing').value,
+      layout: $('layout').value,
       faces: $('faces').checked,
       hole: [v('holeX'), v('holeY')],
       holeR: v('holeD') / 2,
@@ -678,6 +801,12 @@
     $('levels').innerHTML = rows.join('');
     $('customWrap').hidden = $('colorMode').value !== 'custom';
     $('faceList').hidden = !$('faces').checked;
+    const fixed = $('layout').value === 'fixed';
+    $('freeLayout').hidden = fixed;
+    $('layoutDesc').textContent = fixed
+      ? 'Achter, links en onder: een lampje in elke hoek en één in het midden (7 hoeken + 3 midden). '
+        + 'Voor, rechts en boven: 4 lampjes per vlak in een 2 × 2 raster, space-around (12). Totaal 22.'
+      : 'Stel zelf het aantal lampjes per ribbe, de verdeling en de lampjes in het midden van de vlakken in.';
     $('effectDesc').textContent = (EFFECTS[$('effect').value] || EFFECTS.static).desc;
   }
 

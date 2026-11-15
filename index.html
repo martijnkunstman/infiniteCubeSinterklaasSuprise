@@ -65,6 +65,17 @@
         <label>Afstand LED tot spiegel <output id="insetOut"></output>
           <input type="range" id="inset" min="0.3" max="3" step="0.1" value="0.8">
         </label>
+        <label>Helderheid lampjes op voorvlak <output id="frontDimOut"></output>
+          <input type="range" id="frontDim" min="0" max="100" step="5" value="50">
+        </label>
+        <label>Indeling
+          <select id="layout">
+            <option value="fixed" selected>Vast: 3 vlakken hoeken + midden, 3 vlakken 4 lampjes</option>
+            <option value="free">Vrij: lampjes per ribbe + midden vlakken</option>
+          </select>
+        </label>
+        <p class="desc" id="layoutDesc"></p>
+        <div id="freeLayout">
         <label>LEDs per ribbe <output id="perEdgeOut"></output>
           <input type="range" id="perEdge" min="1" max="10" step="1" value="3">
         </label>
@@ -79,6 +90,7 @@
         <div class="edges" id="edges"></div>
         <label class="check"><input type="checkbox" id="faces" checked> LED in het midden van elk vlak</label>
         <div class="edges" id="faceList" hidden></div>
+        </div>
       </details>
 
       <details open>
