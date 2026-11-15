@@ -70,12 +70,25 @@
         </label>
         <label>Indeling
           <select id="layout">
-            <option value="helix" selected>LED-strip: spiraal langs de 4 wanden (deksel vrij)</option>
+            <option value="spread" selected>LED-strip: maximale spreiding, zo min mogelijk overlap in de spiegels (deksel vrij)</option>
+            <option value="grid">LED-strip: raster 10 cm, 20 LEDs op bodem en wanden (deksel vrij)</option>
+            <option value="helix">LED-strip: spiraal langs de 4 wanden (deksel vrij)</option>
             <option value="fixed">Vast: 3 vlakken hoeken + midden, 3 vlakken 4 lampjes</option>
             <option value="free">Vrij: lampjes per ribbe + midden vlakken</option>
           </select>
         </label>
         <p class="desc" id="layoutDesc"></p>
+        <p class="score" id="visScore"></p>
+        <div id="spreadLayout">
+        <label>Aantal LEDs (elk apart geoptimaliseerd)
+          <select id="spreadCount">
+            <option value="20">20 LEDs – minste overlap</option>
+            <option value="30">30 LEDs</option>
+            <option value="40">40 LEDs</option>
+            <option value="50" selected>50 LEDs – meeste losse lichtpunten</option>
+          </select>
+        </label>
+        </div>
         <div id="helixLayout">
         <label>Aantal LEDs op de strip <output id="stripCountOut"></output>
           <input type="range" id="stripCount" min="10" max="100" step="1" value="50">
@@ -135,8 +148,32 @@
         <button id="resetView">Recht vooruit kijken</button>
         <button id="shot">Screenshot</button>
       </div>
+      <div class="buttons">
+        <button id="openNet">Uitslag van de kubus</button>
+      </div>
     </aside>
   </main>
+
+  <div id="netModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="netTitle">
+    <div class="modal-box">
+      <header class="modal-head">
+        <h2 id="netTitle">Uitslag van de kubus</h2>
+        <div class="modal-actions">
+          <button id="netDownload">Download SVG (ware grootte)</button>
+          <button id="netPrint">Afdrukken</button>
+          <button id="netClose" aria-label="Sluiten">✕</button>
+        </div>
+      </header>
+      <p class="net-note" id="netNote"></p>
+      <div id="netWrap"></div>
+      <h3>Positie van elke LED</h3>
+      <p class="net-note">Gemeten tot het midden van de LED, in binnenaanzicht (spiegelkant naar boven).
+        Wanden: vanaf de linkerrand en vanaf de bodem. Bodem: vanaf de linkerrand en vanaf de voorwand.
+        Is de afstand tot de vorige LED korter dan de stripafstand (10 cm), dan leg je de overtollige draad als een
+        kleine bocht op de spiegel (oranje).</p>
+      <div class="table-wrap"><table class="net-table" id="netTable"></table></div>
+    </div>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>
