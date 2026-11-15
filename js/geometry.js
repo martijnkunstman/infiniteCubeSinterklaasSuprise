@@ -49,6 +49,7 @@ export class ViewFrame {
 export class Light {
   constructor(p, { on = true, strip = false } = {}) {
     this.p = p;
+    this.v = p;                    // position in the view frame (set by the effects)
     this.on = on;
     this.strip = strip;
     this.i = 0;                    // index in the layout (strip order)
